@@ -15,14 +15,14 @@ const CONVERSATIONS_FILE = path.join(__dirname, 'data', 'conversations.json');
 
 // Mapeamento dos produtos Kirvano
 const PRODUCT_MAPPING = {
-    '5c1f6390-8999-4740-b16f-51380e1097e4': 'CS',
-    '0f393085-4960-4c71-9efe-faee8ba51d3f': 'CS',
-    'e2282b4c-878c-4bcd-becb-1977dfd6d2b8': 'CS',
-    '5288799c-d8e3-48ce-a91d-587814acdee5': 'FAB'
+    'e79419d3-5b71-4f90-954b-b05e94de8d98': 'CS',
+    '06539c76-40ee-4811-8351-ab3f5ccc4437': 'CS',
+    '564bb9bb-718a-4e8b-a843-a2da62f616f0': 'CS',
+    '668a73bc-2fca-4f12-9331-ef945181cd5c': 'FAB'
 };
 
 // Instâncias Evolution (fallback sequencial)
-const INSTANCES = ['GABY01', 'GABY02', 'GABY03', 'GABY04', 'GABY05', 'GABY06', 'GABY07', 'GABY08', 'GABY09'];
+const INSTANCES = ['D01', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D10'];
 
 // ============ ARMAZENAMENTO EM MEMÓRIA ============
 let conversations = new Map();
