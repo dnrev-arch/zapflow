@@ -22,7 +22,7 @@ const PRODUCT_MAPPING = {
 };
 
 // Instâncias Evolution (fallback sequencial)
-const INSTANCES = ['D01', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D10'];
+const INSTANCES = ['D01', 'D04', 'D05', 'D06', 'D07', 'D08', 'D10'];
 
 // ============ ARMAZENAMENTO EM MEMÓRIA ============
 let conversations = new Map();
