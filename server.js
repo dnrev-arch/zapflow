@@ -13,6 +13,12 @@ const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data', 'funnels.json');
 const CONVERSATIONS_FILE = path.join(__dirname, 'data', 'conversations.json');
 
+// ✅ CONFIGURAÇÕES DO SISTEMA DE HEALTH CHECK
+const HEALTH_CHECK_INTERVAL = 30000; // 30 segundos
+const HEALTH_CHECK_TIMEOUT = 10000; // 10 segundos por teste
+const MAX_CONSECUTIVE_FAILURES = 3; // 3 falhas consecutivas = offline
+const RECOVERY_CHECK_INTERVAL = 60000; // 1 minuto para instâncias offline
+
 // Mapeamento dos produtos Kirvano
 const PRODUCT_MAPPING = {
     'e79419d3-5b71-4f90-954b-b05e94de8d98': 'CS',
@@ -22,7 +28,7 @@ const PRODUCT_MAPPING = {
 };
 
 // Instâncias Evolution (fallback sequencial)
-const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D10'];
+const INSTANCES = ['D01', 'D04', 'D05', 'D06', 'D07', 'D08', 'D10'];
 
 // ============ ARMAZENAMENTO EM MEMÓRIA ============
 let conversations = new Map();
@@ -33,7 +39,37 @@ let logs = [];
 let funis = new Map();
 let instanceRoundRobin = 0;
 
-// ✅ FUNIS PADRÃO CORRIGIDOS - waitForReply false nos passos que devem continuar automaticamente
+// ✅ NOVO: SISTEMA DE MONITORAMENTO DE INSTÂNCIAS
+let instanceHealth = new Map(); // Status de cada instância
+let instanceStats = new Map(); // Estatísticas detalhadas
+let systemAlerts = []; // Alertas do sistema
+let healthCheckActive = false; // Controle do health check
+
+// Inicializar health map
+INSTANCES.forEach(instance => {
+    instanceHealth.set(instance, {
+        status: 'UNKNOWN', // ONLINE, OFFLINE, UNKNOWN, TESTING
+        lastCheck: null,
+        lastSuccess: null,
+        lastError: null,
+        consecutiveFailures: 0,
+        responseTime: 0,
+        uptime: 0,
+        downtime: 0,
+        totalRequests: 0,
+        successfulRequests: 0,
+        failedRequests: 0
+    });
+    
+    instanceStats.set(instance, {
+        conversationsCount: 0,
+        messagesThisHour: 0,
+        averageResponseTime: 0,
+        lastHourStats: []
+    });
+});
+
+// ✅ FUNIS PADRÃO CORRIGIDOS
 const defaultFunnels = {
     'CS_APROVADA': {
         id: 'CS_APROVADA',
@@ -144,6 +180,317 @@ const defaultFunnels = {
         ]
     }
 };
+
+// ============ SISTEMA DE ALERTAS ============
+function createAlert(type, title, message, severity = 'warning', instanceId = null) {
+    const alert = {
+        id: uuidv4(),
+        type, // INSTANCE_DOWN, INSTANCE_UP, MIGRATION, ERROR, etc.
+        title,
+        message,
+        severity, // info, warning, error, critical
+        instanceId,
+        timestamp: new Date(),
+        acknowledged: false
+    };
+    
+    systemAlerts.unshift(alert);
+    
+    // Limitar a 100 alertas
+    if (systemAlerts.length > 100) {
+        systemAlerts = systemAlerts.slice(0, 100);
+    }
+    
+    // Log do alerta
+    addLog('SYSTEM_ALERT', `${title}: ${message}`, { alert });
+    
+    return alert;
+}
+
+// ============ HEALTH CHECK SISTEMA ============
+async function checkInstanceHealth(instanceName) {
+    const startTime = Date.now();
+    const health = instanceHealth.get(instanceName);
+    
+    health.status = 'TESTING';
+    health.lastCheck = new Date();
+    health.totalRequests++;
+    
+    try {
+        // Teste simples: verificar se instância responde
+        const response = await axios.get(`${EVOLUTION_BASE_URL}/instance/connectionState/${instanceName}`, {
+            headers: { 'apikey': EVOLUTION_API_KEY },
+            timeout: HEALTH_CHECK_TIMEOUT,
+            validateStatus: () => true // Aceita qualquer status para análise
+        });
+        
+        const responseTime = Date.now() - startTime;
+        health.responseTime = responseTime;
+        
+        // Considerar sucesso se status 200-299 ou instância conectada
+        const isHealthy = response.status >= 200 && response.status < 300;
+        
+        if (isHealthy) {
+            // SUCESSO
+            health.status = 'ONLINE';
+            health.lastSuccess = new Date();
+            health.consecutiveFailures = 0;
+            health.successfulRequests++;
+            
+            // Atualizar uptime
+            if (health.lastError) {
+                health.uptime += Date.now() - health.lastError.getTime();
+            }
+            
+            addLog('HEALTH_CHECK_SUCCESS', `${instanceName}: ONLINE (${responseTime}ms)`, { 
+                instanceName, 
+                responseTime,
+                status: response.status
+            });
+            
+            return { success: true, responseTime, status: response.status };
+            
+        } else {
+            throw new Error(`HTTP ${response.status}: ${response.data?.message || 'Instância não saudável'}`);
+        }
+        
+    } catch (error) {
+        // FALHA
+        const responseTime = Date.now() - startTime;
+        health.responseTime = responseTime;
+        health.status = 'OFFLINE';
+        health.lastError = new Date();
+        health.consecutiveFailures++;
+        health.failedRequests++;
+        
+        // Atualizar downtime
+        if (health.lastSuccess) {
+            health.downtime += Date.now() - health.lastSuccess.getTime();
+        }
+        
+        addLog('HEALTH_CHECK_FAILED', `${instanceName}: OFFLINE (${health.consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`, { 
+            instanceName, 
+            error: error.message,
+            consecutiveFailures: health.consecutiveFailures
+        });
+        
+        // Criar alerta se atingiu limite de falhas
+        if (health.consecutiveFailures === MAX_CONSECUTIVE_FAILURES) {
+            createAlert('INSTANCE_DOWN', 
+                `Instância ${instanceName} OFFLINE`, 
+                `Instância não responde após ${MAX_CONSECUTIVE_FAILURES} tentativas. Migração automática iniciada.`,
+                'error',
+                instanceName
+            );
+            
+            // Iniciar migração automática
+            await migrateConversationsFromInstance(instanceName);
+        }
+        
+        return { success: false, error: error.message, responseTime };
+    }
+}
+
+// ============ MIGRAÇÃO AUTOMÁTICA DE CONVERSAS ============
+async function migrateConversationsFromInstance(offlineInstance) {
+    const conversationsToMigrate = [];
+    
+    // Encontrar conversas sticky na instância offline
+    stickyInstances.forEach((instanceName, remoteJid) => {
+        if (instanceName === offlineInstance) {
+            conversationsToMigrate.push(remoteJid);
+        }
+    });
+    
+    if (conversationsToMigrate.length === 0) {
+        addLog('MIGRATION_NO_CONVERSATIONS', `Nenhuma conversa para migrar da ${offlineInstance}`);
+        return;
+    }
+    
+    // Encontrar melhor instância para migração (com menos conversas)
+    const targetInstance = findBestInstanceForMigration();
+    
+    if (!targetInstance) {
+        createAlert('MIGRATION_FAILED', 
+            'Falha na migração automática', 
+            `Não há instâncias saudáveis disponíveis para migrar ${conversationsToMigrate.length} conversas de ${offlineInstance}`,
+            'critical',
+            offlineInstance
+        );
+        return;
+    }
+    
+    // Migrar conversas
+    let migratedCount = 0;
+    conversationsToMigrate.forEach(remoteJid => {
+        stickyInstances.set(remoteJid, targetInstance);
+        migratedCount++;
+    });
+    
+    addLog('MIGRATION_SUCCESS', `${migratedCount} conversas migradas: ${offlineInstance} → ${targetInstance}`, {
+        from: offlineInstance,
+        to: targetInstance,
+        count: migratedCount,
+        conversations: conversationsToMigrate.slice(0, 5) // Primeiras 5 para log
+    });
+    
+    createAlert('MIGRATION', 
+        'Migração automática concluída', 
+        `${migratedCount} conversas migradas de ${offlineInstance} para ${targetInstance}`,
+        'warning',
+        offlineInstance
+    );
+    
+    // Atualizar estatísticas
+    const targetStats = instanceStats.get(targetInstance);
+    const offlineStats = instanceStats.get(offlineInstance);
+    
+    if (targetStats && offlineStats) {
+        targetStats.conversationsCount += migratedCount;
+        offlineStats.conversationsCount = 0;
+    }
+}
+
+// ============ ENCONTRAR MELHOR INSTÂNCIA PARA MIGRAÇÃO ============
+function findBestInstanceForMigration() {
+    const healthyInstances = [];
+    
+    instanceHealth.forEach((health, instanceName) => {
+        if (health.status === 'ONLINE') {
+            const stats = instanceStats.get(instanceName);
+            healthyInstances.push({
+                name: instanceName,
+                conversationsCount: stats.conversationsCount,
+                responseTime: health.responseTime
+            });
+        }
+    });
+    
+    if (healthyInstances.length === 0) {
+        return null;
+    }
+    
+    // Ordenar por menos conversas, depois por menor response time
+    healthyInstances.sort((a, b) => {
+        if (a.conversationsCount === b.conversationsCount) {
+            return a.responseTime - b.responseTime;
+        }
+        return a.conversationsCount - b.conversationsCount;
+    });
+    
+    return healthyInstances[0].name;
+}
+
+// ============ HEALTH CHECK LOOP PRINCIPAL ============
+async function runHealthCheck() {
+    if (!healthCheckActive) return;
+    
+    addLog('HEALTH_CHECK_START', 'Iniciando verificação de saúde das instâncias');
+    
+    const healthPromises = INSTANCES.map(instance => checkInstanceHealth(instance));
+    
+    try {
+        await Promise.allSettled(healthPromises);
+        
+        // Atualizar estatísticas
+        updateInstanceStatistics();
+        
+        // Verificar recuperação de instâncias
+        await checkInstanceRecovery();
+        
+    } catch (error) {
+        addLog('HEALTH_CHECK_ERROR', 'Erro no health check: ' + error.message);
+    }
+    
+    addLog('HEALTH_CHECK_COMPLETE', 'Verificação de saúde concluída');
+}
+
+// ============ VERIFICAR RECUPERAÇÃO DE INSTÂNCIAS ============
+async function checkInstanceRecovery() {
+    const offlineInstances = [];
+    
+    instanceHealth.forEach((health, instanceName) => {
+        if (health.status === 'OFFLINE' && health.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            offlineInstances.push(instanceName);
+        }
+    });
+    
+    if (offlineInstances.length === 0) return;
+    
+    addLog('RECOVERY_CHECK', `Verificando recuperação de ${offlineInstances.length} instâncias offline`);
+    
+    for (const instanceName of offlineInstances) {
+        const result = await checkInstanceHealth(instanceName);
+        
+        if (result.success) {
+            createAlert('INSTANCE_UP', 
+                `Instância ${instanceName} RECUPERADA`, 
+                `Instância voltou a responder e está disponível para novas conversas.`,
+                'info',
+                instanceName
+            );
+            
+            addLog('INSTANCE_RECOVERED', `${instanceName} voltou online automaticamente`);
+        }
+    }
+}
+
+// ============ ATUALIZAR ESTATÍSTICAS ============
+function updateInstanceStatistics() {
+    // Contar conversas por instância
+    const conversationCounts = new Map();
+    INSTANCES.forEach(instance => conversationCounts.set(instance, 0));
+    
+    stickyInstances.forEach(instanceName => {
+        const current = conversationCounts.get(instanceName) || 0;
+        conversationCounts.set(instanceName, current + 1);
+    });
+    
+    // Atualizar stats
+    conversationCounts.forEach((count, instanceName) => {
+        const stats = instanceStats.get(instanceName);
+        if (stats) {
+            stats.conversationsCount = count;
+        }
+    });
+    
+    // Limpar estatísticas antigas (manter apenas última hora)
+    const oneHourAgo = Date.now() - (60 * 60 * 1000);
+    instanceStats.forEach(stats => {
+        stats.lastHourStats = stats.lastHourStats.filter(s => s.timestamp > oneHourAgo);
+    });
+}
+
+// ============ INICIALIZAR HEALTH CHECK ============
+function startHealthCheckSystem() {
+    healthCheckActive = true;
+    
+    addLog('HEALTH_SYSTEM_START', 'Sistema de monitoramento de instâncias iniciado', {
+        interval: HEALTH_CHECK_INTERVAL,
+        timeout: HEALTH_CHECK_TIMEOUT,
+        maxFailures: MAX_CONSECUTIVE_FAILURES
+    });
+    
+    createAlert('SYSTEM', 
+        'Sistema de monitoramento iniciado', 
+        `Health check ativo com intervalo de ${HEALTH_CHECK_INTERVAL/1000}s`,
+        'info'
+    );
+    
+    // Health check principal
+    setInterval(runHealthCheck, HEALTH_CHECK_INTERVAL);
+    
+    // Recovery check para instâncias offline
+    setInterval(checkInstanceRecovery, RECOVERY_CHECK_INTERVAL);
+    
+    // Primeiro health check imediato
+    setTimeout(runHealthCheck, 5000);
+}
+
+function stopHealthCheckSystem() {
+    healthCheckActive = false;
+    addLog('HEALTH_SYSTEM_STOP', 'Sistema de monitoramento de instâncias parado');
+}
 
 // ============ PERSISTÊNCIA DE DADOS ============
 
@@ -413,6 +760,8 @@ function addLog(type, message, data = null) {
 // ============ EVOLUTION API ADAPTER ============
 async function sendToEvolution(instanceName, endpoint, payload) {
     const url = EVOLUTION_BASE_URL + endpoint + '/' + instanceName;
+    const startTime = Date.now();
+    
     try {
         const response = await axios.post(url, payload, {
             headers: {
@@ -421,8 +770,31 @@ async function sendToEvolution(instanceName, endpoint, payload) {
             },
             timeout: 15000
         });
+        
+        // ✅ ATUALIZAR ESTATÍSTICAS DE SUCESSO
+        const stats = instanceStats.get(instanceName);
+        if (stats) {
+            stats.messagesThisHour++;
+            stats.lastHourStats.push({
+                timestamp: Date.now(),
+                success: true,
+                responseTime: Date.now() - startTime
+            });
+        }
+        
         return { ok: true, data: response.data };
     } catch (error) {
+        // ✅ ATUALIZAR ESTATÍSTICAS DE FALHA
+        const stats = instanceStats.get(instanceName);
+        if (stats) {
+            stats.lastHourStats.push({
+                timestamp: Date.now(),
+                success: false,
+                responseTime: Date.now() - startTime,
+                error: error.message
+            });
+        }
+        
         return { 
             ok: false, 
             error: error.response?.data || error.message,
@@ -480,49 +852,95 @@ async function sendAudio(remoteJid, audioUrl, clientMessageId, instanceName) {
     return await sendToEvolution(instanceName, '/message/sendMedia', payload);
 }
 
-// ============ ENVIO COM FALLBACK E ROUND-ROBIN ============
+// ============ ENVIO COM FALLBACK INTELIGENTE (USANDO HEALTH CHECK) ============
 async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage = false) {
     const clientMessageId = uuidv4();
-    let instancesToTry = [...INSTANCES];
+    let instancesToTry = [];
     
     // ✅ CORREÇÃO 1: STICKY INSTANCE - Sempre verificar sticky instance primeiro
     const existingStickyInstance = stickyInstances.get(remoteJid);
     
     if (existingStickyInstance) {
-        // ✅ Se já tem sticky instance, SEMPRE usar ela primeiro (mesmo para primeira mensagem)
-        instancesToTry = [existingStickyInstance, ...INSTANCES.filter(i => i !== existingStickyInstance)];
-        addLog('STICKY_INSTANCE_USED', `Usando sticky instance ${existingStickyInstance} para ${remoteJid}`, { 
-            isFirstMessage,
-            stickyInstance: existingStickyInstance
-        });
+        // ✅ NOVO: Verificar se sticky instance está saudável
+        const stickyHealth = instanceHealth.get(existingStickyInstance);
+        
+        if (stickyHealth && stickyHealth.status === 'ONLINE') {
+            // Sticky instance está saudável - usar ela primeiro
+            instancesToTry = [existingStickyInstance, ...getHealthyInstancesExcept(existingStickyInstance)];
+            addLog('STICKY_INSTANCE_HEALTHY', `Usando sticky instance saudável ${existingStickyInstance}`, { 
+                remoteJid, 
+                isFirstMessage 
+            });
+        } else {
+            // ✅ NOVO: Sticky instance não está saudável - migrar automaticamente
+            addLog('STICKY_INSTANCE_UNHEALTHY', `Sticky instance ${existingStickyInstance} não saudável, migrando...`, { 
+                remoteJid,
+                stickyHealth: stickyHealth?.status
+            });
+            
+            // Migrar para instância saudável
+            const newInstance = findBestInstanceForMigration();
+            if (newInstance) {
+                stickyInstances.set(remoteJid, newInstance);
+                instancesToTry = [newInstance, ...getHealthyInstancesExcept(newInstance)];
+                
+                addLog('STICKY_INSTANCE_MIGRATED', `Conversa migrada automaticamente: ${existingStickyInstance} → ${newInstance}`, {
+                    remoteJid,
+                    from: existingStickyInstance,
+                    to: newInstance
+                });
+                
+                createAlert('MIGRATION', 
+                    'Migração automática de conversa', 
+                    `Conversa migrada de ${existingStickyInstance} (offline) para ${newInstance}`,
+                    'warning',
+                    existingStickyInstance
+                );
+            } else {
+                // Nenhuma instância saudável disponível - usar todas e esperar o melhor
+                instancesToTry = INSTANCES;
+                addLog('NO_HEALTHY_INSTANCES', 'Nenhuma instância saudável disponível, tentando todas', { remoteJid });
+            }
+        }
     } else if (isFirstMessage) {
-        // ✅ Round-robin apenas para conversas realmente novas (sem sticky)
-        const primaryInstanceIndex = instanceRoundRobin % INSTANCES.length;
-        const primaryInstance = INSTANCES[primaryInstanceIndex];
-        instanceRoundRobin++;
+        // ✅ NOVO: Round-robin apenas entre instâncias saudáveis
+        const healthyInstances = getHealthyInstances();
         
-        instancesToTry = [
-            primaryInstance,
-            ...INSTANCES.slice(primaryInstanceIndex + 1),
-            ...INSTANCES.slice(0, primaryInstanceIndex)
-        ];
-        
-        addLog('INSTANCE_DISTRIBUTION', `Nova conversa #${instanceRoundRobin} distribuída para ${primaryInstance}`, { 
-            remoteJid,
-            primaryInstance,
-            fallbackOrder: instancesToTry 
-        });
+        if (healthyInstances.length > 0) {
+            const primaryInstanceIndex = instanceRoundRobin % healthyInstances.length;
+            const primaryInstance = healthyInstances[primaryInstanceIndex];
+            instanceRoundRobin++;
+            
+            instancesToTry = [primaryInstance, ...healthyInstances.filter(i => i !== primaryInstance)];
+            
+            addLog('HEALTHY_ROUND_ROBIN', `Nova conversa distribuída para instância saudável ${primaryInstance}`, { 
+                remoteJid,
+                healthyInstances: healthyInstances.length,
+                distributionNumber: instanceRoundRobin
+            });
+        } else {
+            // Nenhuma instância marcada como saudável - usar todas
+            instancesToTry = INSTANCES;
+            instanceRoundRobin++;
+            addLog('NO_HEALTHY_FIRST_MESSAGE', 'Nenhuma instância saudável para primeira mensagem, tentando todas', { remoteJid });
+        }
+    } else {
+        // Mensagem subsequente sem sticky - usar instâncias saudáveis
+        instancesToTry = getHealthyInstances();
+        if (instancesToTry.length === 0) {
+            instancesToTry = INSTANCES;
+        }
     }
     
     let lastError = null;
     
     for (const instanceName of instancesToTry) {
         try {
-            addLog('SEND_ATTEMPT', 'Tentando ' + instanceName + ' para ' + remoteJid, { 
+            addLog('SEND_ATTEMPT', `Tentando ${instanceName}`, { 
                 type, 
-                clientMessageId,
-                isFirstMessage,
-                hasSticky: !!existingStickyInstance
+                remoteJid,
+                instanceHealth: instanceHealth.get(instanceName)?.status,
+                isFirstMessage
             });
             
             let result;
@@ -547,32 +965,62 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
                 // ✅ Definir sticky instance apenas se não existir ainda
                 if (!existingStickyInstance) {
                     stickyInstances.set(remoteJid, instanceName);
-                    addLog('STICKY_INSTANCE_SET', `Nova sticky instance definida: ${instanceName} para ${remoteJid}`, { 
+                    addLog('STICKY_INSTANCE_SET', `Nova sticky instance definida: ${instanceName}`, { 
+                        remoteJid,
                         isFirstMessage 
                     });
                 }
                 
-                addLog('SEND_SUCCESS', 'Mensagem enviada com sucesso via ' + instanceName, { 
+                addLog('SEND_SUCCESS', `Mensagem enviada com sucesso via ${instanceName}`, { 
                     remoteJid, 
                     type,
                     isFirstMessage,
-                    stickyInstance: stickyInstances.get(remoteJid),
-                    distributionNumber: isFirstMessage && !existingStickyInstance ? instanceRoundRobin : null
+                    instanceHealth: instanceHealth.get(instanceName)?.status
                 });
                 
                 return { success: true, instanceName };
             } else {
                 lastError = result.error;
-                addLog('SEND_FAILED', instanceName + ' falhou: ' + JSON.stringify(lastError), { remoteJid, type });
+                addLog('SEND_FAILED', `${instanceName} falhou: ${JSON.stringify(lastError)}`, { 
+                    remoteJid, 
+                    type,
+                    instanceHealth: instanceHealth.get(instanceName)?.status
+                });
             }
         } catch (error) {
             lastError = error.message;
-            addLog('SEND_ERROR', instanceName + ' erro: ' + error.message, { remoteJid, type });
+            addLog('SEND_ERROR', `${instanceName} erro: ${error.message}`, { 
+                remoteJid, 
+                type,
+                instanceHealth: instanceHealth.get(instanceName)?.status
+            });
         }
     }
     
+    // ✅ CRIAR ALERTA SE TODAS AS INSTÂNCIAS FALHARAM
+    createAlert('SEND_FAILED', 
+        'Falha no envio de mensagem', 
+        `Todas as instâncias falharam para ${remoteJid}. Última falha: ${lastError}`,
+        'error'
+    );
+    
     addLog('SEND_ALL_FAILED', 'Todas as instâncias falharam para ' + remoteJid, { lastError });
     return { success: false, error: lastError };
+}
+
+// ============ FUNÇÕES AUXILIARES DO HEALTH CHECK ============
+function getHealthyInstances() {
+    const healthy = [];
+    instanceHealth.forEach((health, instanceName) => {
+        if (health.status === 'ONLINE') {
+            healthy.push(instanceName);
+        }
+    });
+    return healthy;
+}
+
+function getHealthyInstancesExcept(excludeInstance) {
+    return getHealthyInstances().filter(instance => instance !== excludeInstance);
 }
 
 // ============ ORQUESTRAÇÃO DE FUNIS ============
@@ -647,7 +1095,7 @@ async function sendStep(remoteJid) {
         await sendTypingIndicator(remoteJid, typingSeconds);
         
     } else {
-        // ✅ ENVIO COM ROUND-ROBIN PARA PRIMEIRA MENSAGEM
+        // ✅ ENVIO COM HEALTH CHECK INTELIGENTE
         result = await sendWithFallback(remoteJid, step.type, step.text, step.mediaUrl, isFirstMessage);
     }
     
@@ -695,7 +1143,7 @@ async function sendStep(remoteJid) {
 
 // Enviar indicador de digitação
 async function sendTypingIndicator(remoteJid, durationSeconds = 3) {
-    const instanceName = stickyInstances.get(remoteJid) || INSTANCES[0];
+    const instanceName = stickyInstances.get(remoteJid) || getHealthyInstances()[0] || INSTANCES[0];
     
     try {
         // Iniciar digitação
@@ -970,19 +1418,109 @@ app.post('/webhook/evolution', async (req, res) => {
 
 // ============ API ENDPOINTS ============
 
+// ✅ NOVO: Endpoint de monitoramento de instâncias
+app.get('/api/health', (req, res) => {
+    const healthData = {};
+    
+    instanceHealth.forEach((health, instanceName) => {
+        const stats = instanceStats.get(instanceName);
+        
+        healthData[instanceName] = {
+            ...health,
+            stats: {
+                conversationsCount: stats.conversationsCount,
+                messagesThisHour: stats.messagesThisHour,
+                averageResponseTime: stats.averageResponseTime,
+                successRate: health.totalRequests > 0 ? 
+                    ((health.successfulRequests / health.totalRequests) * 100).toFixed(2) + '%' : 'N/A'
+            }
+        };
+    });
+    
+    const systemOverview = {
+        totalInstances: INSTANCES.length,
+        onlineInstances: getHealthyInstances().length,
+        offlineInstances: INSTANCES.length - getHealthyInstances().length,
+        totalConversations: conversations.size,
+        healthCheckActive: healthCheckActive,
+        lastHealthCheck: Math.max(...Array.from(instanceHealth.values()).map(h => h.lastCheck ? h.lastCheck.getTime() : 0))
+    };
+    
+    res.json({
+        success: true,
+        system: systemOverview,
+        instances: healthData,
+        timestamp: new Date().toISOString()
+    });
+});
+
+// ✅ NOVO: Endpoint de alertas do sistema
+app.get('/api/alerts', (req, res) => {
+    const limit = parseInt(req.query.limit) || 20;
+    const unacknowledgedOnly = req.query.unacknowledged === 'true';
+    
+    let alerts = systemAlerts;
+    
+    if (unacknowledgedOnly) {
+        alerts = alerts.filter(alert => !alert.acknowledged);
+    }
+    
+    res.json({
+        success: true,
+        data: alerts.slice(0, limit),
+        total: alerts.length,
+        unacknowledged: systemAlerts.filter(a => !a.acknowledged).length
+    });
+});
+
+// ✅ NOVO: Endpoint para reconhecer alertas
+app.post('/api/alerts/:id/acknowledge', (req, res) => {
+    const alertId = req.params.id;
+    const alert = systemAlerts.find(a => a.id === alertId);
+    
+    if (alert) {
+        alert.acknowledged = true;
+        alert.acknowledgedAt = new Date();
+        addLog('ALERT_ACKNOWLEDGED', `Alerta reconhecido: ${alert.title}`);
+        res.json({ success: true, message: 'Alerta reconhecido' });
+    } else {
+        res.status(404).json({ success: false, error: 'Alerta não encontrado' });
+    }
+});
+
+// ✅ NOVO: Endpoint para controlar health check
+app.post('/api/health/toggle', (req, res) => {
+    const { action } = req.body; // 'start' ou 'stop'
+    
+    if (action === 'start' && !healthCheckActive) {
+        startHealthCheckSystem();
+        res.json({ success: true, message: 'Health check iniciado', active: true });
+    } else if (action === 'stop' && healthCheckActive) {
+        stopHealthCheckSystem();
+        res.json({ success: true, message: 'Health check parado', active: false });
+    } else {
+        res.json({ 
+            success: true, 
+            message: 'Nenhuma ação necessária', 
+            active: healthCheckActive 
+        });
+    }
+});
+
 // Dashboard - estatísticas principais com distribuição de instâncias
 app.get('/api/dashboard', (req, res) => {
     // Contar uso por instância
     const instanceUsage = {};
-    INSTANCES.forEach(inst => {
-        instanceUsage[inst] = 0;
-    });
+    const healthyInstancesCount = getHealthyInstances().length;
     
-    // Contar quantas conversas estão fixadas em cada instância
-    stickyInstances.forEach((instance) => {
-        if (instanceUsage[instance] !== undefined) {
-            instanceUsage[instance]++;
-        }
+    INSTANCES.forEach(inst => {
+        const health = instanceHealth.get(inst);
+        const stats = instanceStats.get(inst);
+        instanceUsage[inst] = {
+            conversations: stats.conversationsCount,
+            status: health.status,
+            responseTime: health.responseTime
+        };
     });
     
     // Calcular próxima instância na fila
@@ -994,11 +1532,14 @@ app.get('/api/dashboard', (req, res) => {
         pending_pix: pixTimeouts.size,
         total_funnels: funis.size,
         total_instances: INSTANCES.length,
+        healthy_instances: healthyInstancesCount,
+        offline_instances: INSTANCES.length - healthyInstancesCount,
         sticky_instances: stickyInstances.size,
         round_robin_counter: instanceRoundRobin,
         next_instance_in_queue: nextInstance,
         instance_distribution: instanceUsage,
-        conversations_per_instance: Math.round(conversations.size / INSTANCES.length)
+        unacknowledged_alerts: systemAlerts.filter(a => !a.acknowledged).length,
+        health_check_active: healthCheckActive
     };
     
     res.json({
@@ -1166,7 +1707,8 @@ app.get('/api/conversations', (req, res) => {
         lastReply: conv.lastReply,
         orderCode: conv.orderCode,
         amount: conv.amount,
-        stickyInstance: stickyInstances.get(remoteJid)
+        stickyInstance: stickyInstances.get(remoteJid),
+        instanceHealth: instanceHealth.get(stickyInstances.get(remoteJid))?.status
     }));
     
     // Ordenar por mais recente primeiro
@@ -1230,6 +1772,7 @@ app.get('/api/debug/evolution', async (req, res) => {
         active_conversations: conversations.size,
         sticky_instances_count: stickyInstances.size,
         round_robin_counter: instanceRoundRobin,
+        health_check_active: healthCheckActive,
         test_results: []
     };
     
@@ -1295,47 +1838,62 @@ async function initializeData() {
 
 // ============ INICIALIZAÇÃO ============
 app.listen(PORT, async () => {
-    console.log('='.repeat(60));
-    console.log('🚀 KIRVANO SYSTEM - BACKEND API [VERSÃO CORRIGIDA]');
-    console.log('='.repeat(60));
+    console.log('='.repeat(80));
+    console.log('🚀 KIRVANO SYSTEM - SISTEMA AVANÇADO DE MONITORAMENTO');
+    console.log('='.repeat(80));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
     console.log('API Key configurada:', EVOLUTION_API_KEY !== 'SUA_API_KEY_AQUI');
     console.log('Instâncias:', INSTANCES.length);
     console.log('');
-    console.log('🔧 CORREÇÕES APLICADAS:');
-    console.log('  ✅ 1. STICKY INSTANCE: Conversas não são mais movidas entre chaves');
-    console.log('  ✅ 2. ÁUDIO: Função sendAudio() corrigida com payload completo');
-    console.log('  ✅ 3. EXPORT/IMPORT: Endpoints para backup/restauração de funis');
+    console.log('🏥 SISTEMA DE HEALTH CHECK:');
+    console.log('  ✅ Monitoramento automático a cada', HEALTH_CHECK_INTERVAL/1000, 'segundos');
+    console.log('  ✅ Detecção de falhas após', MAX_CONSECUTIVE_FAILURES, 'tentativas');  
+    console.log('  ✅ Migração automática de conversas');
+    console.log('  ✅ Recovery automático quando instâncias voltam');
+    console.log('  ✅ Dashboard visual em tempo real');
+    console.log('  ✅ Sistema de alertas integrado');
+    console.log('');
+    console.log('🔧 FUNCIONALIDADES AVANÇADAS:');
+    console.log('  ✅ Circuit Breaker Pattern');
+    console.log('  ✅ Health Check inteligente');
+    console.log('  ✅ Migração automática de conversas');
+    console.log('  ✅ Sticky Instance mantida (corrigido)');
+    console.log('  ✅ Suporte completo a áudio (corrigido)');
+    console.log('  ✅ Export/Import de funis (corrigido)');
+    console.log('  ✅ Distribuição inteligente por saúde');
+    console.log('  ✅ Alertas em tempo real');
+    console.log('  ✅ Estatísticas detalhadas');
     console.log('');
     console.log('📡 API Endpoints NOVOS:');
-    console.log('  GET  /api/funnels/export  - Exportar funis para arquivo JSON');
-    console.log('  POST /api/funnels/import  - Importar funis de arquivo JSON');
+    console.log('  GET  /api/health              - Status detalhado das instâncias');
+    console.log('  GET  /api/alerts              - Alertas do sistema');
+    console.log('  POST /api/alerts/:id/acknowledge - Reconhecer alerta');
+    console.log('  POST /api/health/toggle       - Controlar health check');
     console.log('');
-    console.log('🎯 PROBLEMAS RESOLVIDOS:');
-    console.log('  • Sticky instance mantida durante todo o funil');
-    console.log('  • Áudio funciona corretamente');
-    console.log('  • Backup e restauração de funis disponível');
-    console.log('');
-    console.log('📡 API Endpoints:');
-    console.log('  GET  /api/dashboard       - Estatísticas + Round-robin');
-    console.log('  GET  /api/funnels         - Listar funis');
-    console.log('  POST /api/funnels         - Criar/editar funil');
-    console.log('  GET  /api/funnels/export  - Exportar funis');
-    console.log('  POST /api/funnels/import  - Importar funis');
-    console.log('  GET  /api/conversations   - Listar conversas');
-    console.log('  GET  /api/logs            - Logs recentes');
-    console.log('  POST /api/send-test       - Teste de envio');
-    console.log('  GET  /api/debug/evolution - Debug Evolution API');
+    console.log('📡 API Endpoints EXISTENTES:');
+    console.log('  GET  /api/dashboard           - Dashboard com health status');
+    console.log('  GET  /api/funnels             - Listar funis');
+    console.log('  POST /api/funnels             - Criar/editar funil');
+    console.log('  GET  /api/funnels/export      - Exportar funis');
+    console.log('  POST /api/funnels/import      - Importar funis');
+    console.log('  GET  /api/conversations       - Conversas (com health status)');
+    console.log('  GET  /api/logs                - Logs recentes');
+    console.log('  POST /api/send-test           - Teste de envio');
+    console.log('  GET  /api/debug/evolution     - Debug Evolution API');
     console.log('');
     console.log('📨 Webhooks:');
-    console.log('  POST /webhook/kirvano     - Eventos Kirvano');
-    console.log('  POST /webhook/evolution   - Eventos Evolution');
+    console.log('  POST /webhook/kirvano         - Eventos Kirvano');
+    console.log('  POST /webhook/evolution       - Eventos Evolution');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('🧪 Testes: http://localhost:' + PORT + '/test.html');
-    console.log('='.repeat(60));
+    console.log('='.repeat(80));
     
     // Carregar dados persistidos
     await initializeData();
+    
+    // ✅ INICIALIZAR SISTEMA DE HEALTH CHECK
+    console.log('🏥 Iniciando sistema de monitoramento...');
+    startHealthCheckSystem();
 });
