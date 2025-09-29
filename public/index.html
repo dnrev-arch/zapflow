@@ -120,6 +120,7 @@
             background: #f8fafc;
             border-right: 1px solid #e5e7eb;
             padding: 24px;
+            overflow-y: auto;
         }
 
         .funnel-selector {
@@ -139,6 +140,62 @@
             border: 1px solid #d1d5db;
             border-radius: 8px;
             background: white;
+        }
+
+        /* ✅ CORREÇÃO 3: EXPORT/IMPORT - Novos estilos para botões */
+        .funnel-actions {
+            margin-bottom: 24px;
+            padding: 16px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+        }
+
+        .funnel-actions h3 {
+            font-size: 14px;
+            color: #1f2937;
+            margin-bottom: 12px;
+        }
+
+        .action-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .btn-small-grid {
+            padding: 8px 12px;
+            font-size: 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-small-grid:hover {
+            background: #5a6fd8;
+            transform: translateY(-1px);
+        }
+
+        .btn-import {
+            background: #10b981;
+        }
+
+        .btn-import:hover {
+            background: #059669;
+        }
+
+        .file-input {
+            width: 100%;
+            padding: 8px;
+            font-size: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            margin-top: 8px;
         }
 
         .block-palette {
@@ -421,6 +478,50 @@
         .badge-info { background: #dbeafe; color: #1e40af; }
         .badge-danger { background: #fecaca; color: #991b1b; }
 
+        /* ✅ CORREÇÃO 3: EXPORT/IMPORT - Estilos para notificações */
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: white;
+            border-radius: 8px;
+            padding: 16px 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            z-index: 1000;
+            min-width: 300px;
+            opacity: 0;
+            transform: translateX(100px);
+            transition: all 0.3s ease;
+        }
+
+        .notification.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .notification.success {
+            border-left: 4px solid #10b981;
+        }
+
+        .notification.error {
+            border-left: 4px solid #dc2626;
+        }
+
+        .notification.info {
+            border-left: 4px solid #3b82f6;
+        }
+
+        .notification-title {
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 4px;
+        }
+
+        .notification-message {
+            color: #6b7280;
+            font-size: 14px;
+        }
+
         @media (max-width: 768px) {
             .funnel-editor {
                 flex-direction: column;
@@ -433,6 +534,10 @@
             
             .stats-grid {
                 grid-template-columns: 1fr 1fr;
+            }
+
+            .action-buttons {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -483,6 +588,23 @@
                             </select>
                         </div>
 
+                        <!-- ✅ CORREÇÃO 3: EXPORT/IMPORT - Nova seção -->
+                        <div class="funnel-actions">
+                            <h3>🔄 Backup e Restauração</h3>
+                            <div class="action-buttons">
+                                <button class="btn-small-grid" onclick="exportFunnels()">
+                                    📤 Exportar
+                                </button>
+                                <button class="btn-small-grid btn-import" onclick="document.getElementById('importFile').click()">
+                                    📥 Importar
+                                </button>
+                            </div>
+                            <input type="file" id="importFile" class="file-input" accept=".json" onchange="importFunnels()" style="display: none;">
+                            <div style="font-size: 11px; color: #6b7280; margin-top: 8px; text-align: center;">
+                                Salve seus funis antes do deploy
+                            </div>
+                        </div>
+
                         <div class="block-palette">
                             <h3>Adicionar Blocos:</h3>
                             <div class="block-item" onclick="addBlock('text')">
@@ -506,6 +628,15 @@
                                 <div>
                                     <div style="font-weight: 600;">Vídeo</div>
                                     <div style="font-size: 12px; color: #6b7280;">Enviar vídeo</div>
+                                </div>
+                            </div>
+
+                            <!-- ✅ CORREÇÃO 2: ÁUDIO - Melhorar visibilidade do bloco de áudio -->
+                            <div class="block-item" onclick="addBlock('audio')" style="border: 2px solid #f59e0b; background: #fef3c7;">
+                                <div class="block-icon" style="background: #f59e0b;">🎵</div>
+                                <div>
+                                    <div style="font-weight: 600;">Áudio</div>
+                                    <div style="font-size: 12px; color: #92400e;">Enviar arquivo de áudio</div>
                                 </div>
                             </div>
                             
@@ -538,14 +669,6 @@
                                 <div>
                                     <div style="font-weight: 600;">Digitando</div>
                                     <div style="font-size: 12px; color: #6b7280;">Simular "está digitando"</div>
-                                </div>
-                            </div>
-                            
-                            <div class="block-item" onclick="addBlock('audio')">
-                                <div class="block-icon">🎵</div>
-                                <div>
-                                    <div style="font-weight: 600;">Áudio</div>
-                                    <div style="font-size: 12px; color: #6b7280;">Enviar arquivo de áudio</div>
                                 </div>
                             </div>
                         </div>
@@ -625,6 +748,123 @@
             }
         };
 
+        // ✅ CORREÇÃO 3: EXPORT/IMPORT - Funções de notificação
+        function showNotification(title, message, type = 'info') {
+            // Remover notificações anteriores
+            const existingNotifications = document.querySelectorAll('.notification');
+            existingNotifications.forEach(n => n.remove());
+
+            // Criar nova notificação
+            const notification = document.createElement('div');
+            notification.className = `notification ${type}`;
+            notification.innerHTML = `
+                <div class="notification-title">${title}</div>
+                <div class="notification-message">${message}</div>
+            `;
+
+            document.body.appendChild(notification);
+
+            // Mostrar com animação
+            setTimeout(() => {
+                notification.classList.add('show');
+            }, 100);
+
+            // Remover após 4 segundos
+            setTimeout(() => {
+                notification.classList.remove('show');
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 300);
+            }, 4000);
+        }
+
+        // ✅ CORREÇÃO 3: EXPORT/IMPORT - Função para exportar funis
+        async function exportFunnels() {
+            try {
+                showNotification('Exportando...', 'Preparando arquivo de backup dos funis', 'info');
+
+                const response = await fetch('/api/funnels/export');
+                
+                if (!response.ok) {
+                    throw new Error('Erro ao exportar funis');
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                
+                // Criar link de download
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `kirvano-funnels-${new Date().toISOString().split('T')[0]}.json`;
+                
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                
+                window.URL.revokeObjectURL(url);
+
+                showNotification('✅ Exportado!', 'Funis salvos com sucesso. Guarde o arquivo em local seguro.', 'success');
+
+            } catch (error) {
+                console.error('Erro ao exportar funis:', error);
+                showNotification('❌ Erro', 'Falha ao exportar funis: ' + error.message, 'error');
+            }
+        }
+
+        // ✅ CORREÇÃO 3: EXPORT/IMPORT - Função para importar funis
+        async function importFunnels() {
+            const fileInput = document.getElementById('importFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showNotification('⚠️ Atenção', 'Selecione um arquivo para importar', 'error');
+                return;
+            }
+
+            try {
+                showNotification('Importando...', 'Processando arquivo de backup', 'info');
+
+                const text = await file.text();
+                const importData = JSON.parse(text);
+
+                const response = await fetch('/api/funnels/import', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(importData)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    let message = `${result.imported} funis importados`;
+                    if (result.skipped > 0) {
+                        message += `, ${result.skipped} ignorados (já existiam)`;
+                    }
+                    if (result.errors.length > 0) {
+                        message += `, ${result.errors.length} erros`;
+                    }
+
+                    showNotification('✅ Importado!', message, 'success');
+
+                    // Recarregar funis
+                    await loadFunnelsFromServer();
+                    loadFunnelEditor();
+
+                } else {
+                    throw new Error(result.error);
+                }
+
+            } catch (error) {
+                console.error('Erro ao importar funis:', error);
+                showNotification('❌ Erro', 'Falha ao importar: ' + error.message, 'error');
+            }
+
+            // Limpar input
+            fileInput.value = '';
+        }
+
         // NAVEGAÇÃO PRINCIPAL
         function switchMainTab(tabName) {
             document.querySelectorAll('.main-tab').forEach(tab => tab.classList.remove('active'));
@@ -698,7 +938,7 @@
                 'video+text': '🎬',
                 'delay': '⏰',
                 'typing': '💬',
-                'audio': '🎵'
+                'audio': '🎵'  // ✅ CORREÇÃO 2: ÁUDIO - Ícone específico
             };
             return icons[type] || 'T';
         }
@@ -712,7 +952,7 @@
                 'video+text': 'Vídeo + Texto',
                 'delay': 'Delay',
                 'typing': 'Digitando',
-                'audio': 'Áudio'
+                'audio': 'Áudio'  // ✅ CORREÇÃO 2: ÁUDIO - Nome específico
             };
             return names[type] || 'Mensagem';
         }
@@ -761,7 +1001,8 @@
                                 ` : step.type === 'typing' ? `
                                     <span style="color: #667eea;">💬 Mostrar "digitando" por ${step.typingSeconds || 3} segundos</span>
                                 ` : step.type === 'audio' ? `
-                                    <strong>Áudio:</strong> ${step.mediaUrl || 'URL não configurada'}
+                                    <strong style="color: #f59e0b;">🎵 Áudio:</strong> ${step.mediaUrl || 'URL não configurada'}
+                                    ${step.text ? `<br><strong>Texto adicional:</strong> ${step.text.substring(0, 100)}${step.text.length > 100 ? '...' : ''}` : ''}
                                     ${step.waitForReply ? '<br><span style="color: #dc2626;">⏸️ Aguardar resposta do cliente</span>' : ''}
                                 ` : `
                                     ${step.delayBefore ? `<span style="color: #f59e0b;">⏰ Delay: ${step.delayBefore}s</span><br>` : ''}
@@ -798,20 +1039,53 @@
                                     <small style="color: #6b7280;">Mostrar "está digitando..." para o cliente</small>
                                 </div>
                                 ` : `
+                                ${step.type !== 'image' && step.type !== 'video' && step.type !== 'audio' ? `
                                 <div class="form-group">
                                     <label class="form-label">Texto da Mensagem</label>
                                     <textarea class="form-input form-textarea" 
                                         placeholder="Digite o texto da mensagem..."
                                         oninput="updateStep(${index}, 'text', this.value)">${step.text || ''}</textarea>
                                 </div>
+                                ` : ''}
                                 
-                                ${step.type !== 'text' ? `
+                                ${step.type === 'audio' ? `
+                                <!-- ✅ CORREÇÃO 2: ÁUDIO - Interface melhorada para áudio -->
+                                <div class="form-group" style="background: #fef3c7; padding: 12px; border-radius: 8px; border: 1px solid #f59e0b;">
+                                    <label class="form-label" style="color: #92400e;">🎵 URL do Áudio (obrigatório)</label>
+                                    <input type="url" class="form-input" 
+                                        placeholder="https://exemplo.com/audio.mp3"
+                                        value="${step.mediaUrl || ''}"
+                                        oninput="updateStep(${index}, 'mediaUrl', this.value)"
+                                        style="border-color: #f59e0b;">
+                                    <small style="color: #92400e;">
+                                        Formatos aceitos: MP3, M4A, OGG. Tamanho máximo recomendado: 16MB
+                                    </small>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <label class="form-label">Texto adicional (opcional)</label>
+                                    <textarea class="form-input form-textarea" 
+                                        placeholder="Texto que acompanha o áudio (opcional)..."
+                                        oninput="updateStep(${index}, 'text', this.value)">${step.text || ''}</textarea>
+                                </div>
+                                ` : ''}
+
+                                ${(step.type === 'image' || step.type === 'video' || step.type === 'image+text' || step.type === 'video+text') && step.type !== 'audio' ? `
                                 <div class="form-group">
                                     <label class="form-label">URL da Mídia</label>
                                     <input type="url" class="form-input" 
-                                        placeholder="https://exemplo.com/arquivo.${step.type === 'audio' ? 'mp3' : step.type === 'video' || step.type === 'video+text' ? 'mp4' : 'jpg'}"
+                                        placeholder="https://exemplo.com/arquivo.${step.type.includes('video') ? 'mp4' : 'jpg'}"
                                         value="${step.mediaUrl || ''}"
                                         oninput="updateStep(${index}, 'mediaUrl', this.value)">
+                                </div>
+                                ` : ''}
+
+                                ${(step.type === 'image+text' || step.type === 'video+text') ? `
+                                <div class="form-group">
+                                    <label class="form-label">Texto/Legenda</label>
+                                    <textarea class="form-input form-textarea" 
+                                        placeholder="Digite o texto que acompanha a mídia..."
+                                        oninput="updateStep(${index}, 'text', this.value)">${step.text || ''}</textarea>
                                 </div>
                                 ` : ''}
                                 
@@ -904,15 +1178,19 @@
                         return;
                     }
                 } else if (step.type === 'image' || step.type === 'video' || step.type === 'audio' || step.type === 'image+text' || step.type === 'video+text') {
-                    // Só exigir URL para tipos com mídia
+                    // ✅ CORREÇÃO 2: ÁUDIO - Validação específica para áudio
                     if (!step.mediaUrl || step.mediaUrl.trim() === '') {
-                        alert(`Passo ${i + 1}: URL da mídia é obrigatória`);
+                        const mediaType = step.type === 'audio' ? 'áudio' : 
+                                         step.type.includes('video') ? 'vídeo' : 'imagem';
+                        alert(`Passo ${i + 1}: URL do ${mediaType} é obrigatória`);
                         return;
                     }
                 }
             }
             
             try {
+                showNotification('Salvando...', 'Atualizando funil no servidor', 'info');
+
                 const response = await fetch('/api/funnels', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -922,14 +1200,14 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    alert('Funil salvo com sucesso!');
+                    showNotification('✅ Salvo!', 'Funil atualizado com sucesso', 'success');
                     editingStepIndex = -1;
                     renderSteps();
                 } else {
-                    alert('Erro: ' + result.error);
+                    throw new Error(result.error);
                 }
             } catch (error) {
-                alert('Erro ao salvar funil: ' + error.message);
+                showNotification('❌ Erro', 'Erro ao salvar funil: ' + error.message, 'error');
             }
         }
 
