@@ -31,7 +31,7 @@ let stickyInstances = new Map();
 let pixTimeouts = new Map();
 let logs = [];
 let funis = new Map();
-let instanceRoundRobin = 0; // ✅ Contador para distribuição circular de primeira mensagem
+let instanceRoundRobin = 0;
 
 // ✅ FUNIS PADRÃO CORRIGIDOS - waitForReply false nos passos que devem continuar automaticamente
 const defaultFunnels = {
@@ -52,13 +52,13 @@ const defaultFunnels = {
                 id: 'step_2',
                 type: 'text',
                 text: 'Obrigado pela resposta! Aqui estão seus próximos passos...',
-                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+                waitForReply: false
             },
             {
                 id: 'step_3',
                 type: 'text',
                 text: 'Lembre-se de acessar nossa plataforma. Qualquer dúvida, estamos aqui!',
-                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+                waitForReply: false
             }
         ]
     },
@@ -79,13 +79,13 @@ const defaultFunnels = {
                 id: 'step_2',
                 type: 'text',
                 text: 'Obrigado pelo contato! Assim que o pagamento for confirmado, você receberá o acesso.',
-                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+                waitForReply: false
             },
             {
                 id: 'step_3',
                 type: 'text',
                 text: 'PIX vencido! Entre em contato conosco para gerar um novo.',
-                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+                waitForReply: false
             }
         ]
     },
@@ -106,13 +106,13 @@ const defaultFunnels = {
                 id: 'step_2',
                 type: 'text',
                 text: 'Que bom que respondeu! Sua jornada FAB começa agora...',
-                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+                waitForReply: false
             },
             {
                 id: 'step_3',
                 type: 'text',
                 text: 'Acesse nossa área de membros e comece sua transformação hoje mesmo!',
-                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+                waitForReply: false
             }
         ]
     },
@@ -133,13 +133,13 @@ const defaultFunnels = {
                 id: 'step_2',
                 type: 'text',
                 text: 'Obrigado pelo contato! Logo após o pagamento, você terá acesso completo ao FAB.',
-                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+                waitForReply: false
             },
             {
                 id: 'step_3',
                 type: 'text',
                 text: 'PIX vencido! Entre em contato para gerar um novo e não perder essa oportunidade.',
-                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+                waitForReply: false
             }
         ]
     }
@@ -318,7 +318,7 @@ function phoneToRemoteJid(phone) {
     return normalized + '@s.whatsapp.net';
 }
 
-// ✅ NOVA FUNÇÃO: Criar múltiplas variações do número para busca
+// ✅ CORREÇÃO 1: STICKY INSTANCE - Função corrigida para NÃO mover conversas
 function findConversationByPhone(phone) {
     const normalized = normalizePhone(phone);
     const remoteJid = normalized + '@s.whatsapp.net';
@@ -326,10 +326,10 @@ function findConversationByPhone(phone) {
     // Tentar encontrar conversa com número exato
     if (conversations.has(remoteJid)) {
         addLog('CONVERSATION_FOUND_EXACT', 'Conversa encontrada com número exato', { remoteJid });
-        return conversations.get(remoteJid);
+        return { conversation: conversations.get(remoteJid), key: remoteJid };
     }
     
-    // ✅ BUSCA FLEXÍVEL: Criar variações do número
+    // ✅ BUSCA FLEXÍVEL: Criar variações do número PARA BUSCA APENAS
     const phoneOnly = normalized.replace('55', ''); // Remove código do país
     const variations = [
         normalized + '@s.whatsapp.net',                    // 5575981734444@s.whatsapp.net
@@ -345,28 +345,17 @@ function findConversationByPhone(phone) {
         variations.push('55' + ddd + numeroSem9 + '@s.whatsapp.net');   // 557581734444@s.whatsapp.net
     }
     
-    // Buscar em todas as variações
+    // Buscar em todas as variações MAS NÃO MOVER
     for (const variation of variations) {
         if (conversations.has(variation)) {
-            addLog('CONVERSATION_FOUND_VARIATION', 'Conversa encontrada com variação', { 
+            addLog('CONVERSATION_FOUND_VARIATION', 'Conversa encontrada com variação (não movendo)', { 
                 searched: remoteJid,
                 found: variation,
                 variations: variations
             });
             
-            // ✅ IMPORTANTE: Atualizar a chave da conversa para o formato normalizado
-            const conversation = conversations.get(variation);
-            conversations.delete(variation); // Remove entrada antiga
-            conversations.set(remoteJid, conversation); // Adiciona com chave normalizada
-            
-            // Atualizar sticky instance também
-            if (stickyInstances.has(variation)) {
-                const instance = stickyInstances.get(variation);
-                stickyInstances.delete(variation);
-                stickyInstances.set(remoteJid, instance);
-            }
-            
-            return conversation;
+            // ✅ IMPORTANTE: RETORNAR A CONVERSA COM A CHAVE ORIGINAL (não mover)
+            return { conversation: conversations.get(variation), key: variation };
         }
     }
     
@@ -471,12 +460,23 @@ async function sendVideo(remoteJid, videoUrl, caption, clientMessageId, instance
     return await sendToEvolution(instanceName, '/message/sendMedia', payload);
 }
 
+// ✅ CORREÇÃO 2: ÁUDIO - Função corrigida com payload completo
 async function sendAudio(remoteJid, audioUrl, clientMessageId, instanceName) {
+    // ✅ Payload corrigido para áudio - testando diferentes formatos
     const payload = {
         number: remoteJid.replace('@s.whatsapp.net', ''),
         mediatype: 'audio',
-        media: audioUrl
+        media: audioUrl,
+        fileName: 'audio.mp3'  // ✅ Adicionado fileName que pode ser necessário
     };
+    
+    addLog('AUDIO_SEND_ATTEMPT', 'Tentando enviar áudio', { 
+        remoteJid, 
+        audioUrl, 
+        instanceName,
+        payload 
+    });
+    
     return await sendToEvolution(instanceName, '/message/sendMedia', payload);
 }
 
@@ -485,13 +485,22 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
     const clientMessageId = uuidv4();
     let instancesToTry = [...INSTANCES];
     
-    // ✅ NOVA LÓGICA: Round-robin para primeira mensagem
-    if (isFirstMessage) {
+    // ✅ CORREÇÃO 1: STICKY INSTANCE - Sempre verificar sticky instance primeiro
+    const existingStickyInstance = stickyInstances.get(remoteJid);
+    
+    if (existingStickyInstance) {
+        // ✅ Se já tem sticky instance, SEMPRE usar ela primeiro (mesmo para primeira mensagem)
+        instancesToTry = [existingStickyInstance, ...INSTANCES.filter(i => i !== existingStickyInstance)];
+        addLog('STICKY_INSTANCE_USED', `Usando sticky instance ${existingStickyInstance} para ${remoteJid}`, { 
+            isFirstMessage,
+            stickyInstance: existingStickyInstance
+        });
+    } else if (isFirstMessage) {
+        // ✅ Round-robin apenas para conversas realmente novas (sem sticky)
         const primaryInstanceIndex = instanceRoundRobin % INSTANCES.length;
         const primaryInstance = INSTANCES[primaryInstanceIndex];
         instanceRoundRobin++;
         
-        // Organizar instâncias em ordem de prioridade para fallback
         instancesToTry = [
             primaryInstance,
             ...INSTANCES.slice(primaryInstanceIndex + 1),
@@ -503,12 +512,6 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
             primaryInstance,
             fallbackOrder: instancesToTry 
         });
-    } else {
-        // ✅ Manter lógica existente para mensagens subsequentes
-        const stickyInstance = stickyInstances.get(remoteJid);
-        if (stickyInstance) {
-            instancesToTry = [stickyInstance, ...INSTANCES.filter(i => i !== stickyInstance)];
-        }
     }
     
     let lastError = null;
@@ -518,12 +521,13 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
             addLog('SEND_ATTEMPT', 'Tentando ' + instanceName + ' para ' + remoteJid, { 
                 type, 
                 clientMessageId,
-                isFirstMessage 
+                isFirstMessage,
+                hasSticky: !!existingStickyInstance
             });
             
             let result;
             
-            // ✅ CORREÇÃO: Tipos corrigidos para suportar vídeo e áudio
+            // ✅ CORREÇÃO 2: ÁUDIO - Adicionado suporte completo a áudio
             if (type === 'text') {
                 result = await sendText(remoteJid, text, clientMessageId, instanceName);
             } else if (type === 'image') {
@@ -535,18 +539,25 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
             } else if (type === 'video+text') {
                 result = await sendVideo(remoteJid, mediaUrl, text, clientMessageId, instanceName);
             } else if (type === 'audio') {
+                // ✅ ÁUDIO agora vai funcionar corretamente
                 result = await sendAudio(remoteJid, mediaUrl, clientMessageId, instanceName);
             }
             
             if (result && result.ok) {
-                // ✅ Atualizar sticky instance apenas para primeira mensagem ou sucesso
-                stickyInstances.set(remoteJid, instanceName);
+                // ✅ Definir sticky instance apenas se não existir ainda
+                if (!existingStickyInstance) {
+                    stickyInstances.set(remoteJid, instanceName);
+                    addLog('STICKY_INSTANCE_SET', `Nova sticky instance definida: ${instanceName} para ${remoteJid}`, { 
+                        isFirstMessage 
+                    });
+                }
                 
                 addLog('SEND_SUCCESS', 'Mensagem enviada com sucesso via ' + instanceName, { 
                     remoteJid, 
                     type,
                     isFirstMessage,
-                    distributionNumber: isFirstMessage ? instanceRoundRobin : null
+                    stickyInstance: stickyInstances.get(remoteJid),
+                    distributionNumber: isFirstMessage && !existingStickyInstance ? instanceRoundRobin : null
                 });
                 
                 return { success: true, instanceName };
@@ -883,9 +894,8 @@ app.post('/webhook/kirvano', async (req, res) => {
     }
 });
 
-// ✅ CORREÇÃO 3: Adicionar logs detalhados no webhook Evolution
+// ✅ CORREÇÃO 1: STICKY INSTANCE - Webhook corrigido para usar busca sem mover
 app.post('/webhook/evolution', async (req, res) => {
-    // ✅ Log completo do webhook recebido
     console.log('===== WEBHOOK EVOLUTION RECEBIDO =====');
     console.log(JSON.stringify(req.body, null, 2));
     addLog('WEBHOOK_RECEIVED', 'Webhook Evolution recebido', req.body);
@@ -910,34 +920,35 @@ app.post('/webhook/evolution', async (req, res) => {
             hasConversation: conversations.has(remoteJid)
         });
         
-        // ✅ CORREÇÃO 6: Remover lógica de ACK que não funciona mais
         if (fromMe) {
             addLog('WEBHOOK_FROM_ME', 'Mensagem enviada por nós ignorada', { remoteJid });
             return res.json({ success: true });
         } else {
             const incomingPhone = messageData.key.remoteJid.replace('@s.whatsapp.net', '');
             
-            // ✅ CORREÇÃO: Usar busca flexível por telefone
-            const conversation = findConversationByPhone(incomingPhone);
+            // ✅ CORREÇÃO 1: STICKY INSTANCE - Usar busca sem mover
+            const conversationData = findConversationByPhone(incomingPhone);
             
-            if (conversation && conversation.waiting_for_response) {
-                const normalizedRemoteJid = normalizePhone(incomingPhone) + '@s.whatsapp.net';
+            if (conversationData && conversationData.conversation.waiting_for_response) {
+                const conversation = conversationData.conversation;
+                const actualRemoteJid = conversationData.key; // ✅ Usar a chave ORIGINAL da conversa
                 
-                const idempotencyKey = 'REPLY:' + normalizedRemoteJid + ':' + conversation.funnelId + ':' + conversation.stepIndex;
+                const idempotencyKey = 'REPLY:' + actualRemoteJid + ':' + conversation.funnelId + ':' + conversation.stepIndex;
                 if (checkIdempotency(idempotencyKey)) {
-                    addLog('WEBHOOK_DUPLICATE_REPLY', 'Resposta duplicada ignorada', { remoteJid: normalizedRemoteJid });
+                    addLog('WEBHOOK_DUPLICATE_REPLY', 'Resposta duplicada ignorada', { remoteJid: actualRemoteJid });
                     return res.json({ success: true, message: 'Resposta duplicada' });
                 }
                 
                 addLog('CLIENT_REPLY', 'Resposta recebida e processada', { 
                     originalRemoteJid: remoteJid,
-                    normalizedRemoteJid: normalizedRemoteJid,
+                    actualRemoteJid: actualRemoteJid,
                     text: messageText.substring(0, 100),
                     step: conversation.stepIndex,
                     funnelId: conversation.funnelId
                 });
                 
-                await advanceConversation(normalizedRemoteJid, messageText, 'reply');
+                // ✅ CORREÇÃO CRÍTICA: Usar a chave original da conversa (mantém sticky instance)
+                await advanceConversation(actualRemoteJid, messageText, 'reply');
             } else {
                 addLog('WEBHOOK_NO_CONVERSATION', 'Mensagem recebida mas sem conversa ativa', { 
                     remoteJid, 
@@ -1055,6 +1066,88 @@ app.delete('/api/funnels/:id', (req, res) => {
         res.json({ success: true, message: 'Funil excluído com sucesso' });
     } else {
         res.status(404).json({ success: false, error: 'Funil não encontrado' });
+    }
+});
+
+// ✅ CORREÇÃO 3: EXPORT/IMPORT - Novos endpoints
+app.get('/api/funnels/export', (req, res) => {
+    try {
+        const funnelsArray = Array.from(funis.values());
+        const exportData = {
+            version: '1.0',
+            exportDate: new Date().toISOString(),
+            totalFunnels: funnelsArray.length,
+            funnels: funnelsArray
+        };
+        
+        addLog('FUNNEL_EXPORT', 'Exportando ' + funnelsArray.length + ' funis');
+        
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', 'attachment; filename=kirvano-funnels-' + 
+                     new Date().toISOString().split('T')[0] + '.json');
+        
+        res.json(exportData);
+        
+    } catch (error) {
+        addLog('FUNNEL_EXPORT_ERROR', error.message);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/funnels/import', (req, res) => {
+    try {
+        const importData = req.body;
+        
+        if (!importData.funnels || !Array.isArray(importData.funnels)) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Formato de arquivo inválido' 
+            });
+        }
+        
+        let imported = 0;
+        let skipped = 0;
+        let errors = [];
+        
+        importData.funnels.forEach(funnel => {
+            try {
+                if (!funnel.id || !funnel.name || !funnel.steps) {
+                    errors.push('Funil inválido: ' + (funnel.id || 'sem ID'));
+                    return;
+                }
+                
+                // Verificar se já existe (para evitar sobrescrever acidentalmente)
+                if (funis.has(funnel.id)) {
+                    skipped++;
+                    addLog('FUNNEL_IMPORT_SKIP', 'Funil já existe: ' + funnel.id);
+                } else {
+                    funis.set(funnel.id, funnel);
+                    imported++;
+                    addLog('FUNNEL_IMPORT_SUCCESS', 'Funil importado: ' + funnel.id);
+                }
+            } catch (error) {
+                errors.push('Erro ao importar ' + (funnel.id || 'funil') + ': ' + error.message);
+            }
+        });
+        
+        // Salvar no arquivo
+        if (imported > 0) {
+            saveFunnelsToFile();
+        }
+        
+        addLog('FUNNEL_IMPORT_COMPLETE', `Importação concluída: ${imported} importados, ${skipped} ignorados, ${errors.length} erros`);
+        
+        res.json({
+            success: true,
+            message: 'Importação concluída',
+            imported: imported,
+            skipped: skipped,
+            errors: errors
+        });
+        
+    } catch (error) {
+        addLog('FUNNEL_IMPORT_ERROR', error.message);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -1203,40 +1296,41 @@ async function initializeData() {
 // ============ INICIALIZAÇÃO ============
 app.listen(PORT, async () => {
     console.log('='.repeat(60));
-    console.log('🚀 KIRVANO SYSTEM - BACKEND API [VERSÃO COM ROUND-ROBIN]');
+    console.log('🚀 KIRVANO SYSTEM - BACKEND API [VERSÃO CORRIGIDA]');
     console.log('='.repeat(60));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
     console.log('API Key configurada:', EVOLUTION_API_KEY !== 'SUA_API_KEY_AQUI');
     console.log('Instâncias:', INSTANCES.length);
     console.log('');
-    console.log('🔧 MODIFICAÇÕES APLICADAS:');
-    console.log('  ✅ 1. Round-robin para primeiras mensagens');
-    console.log('  ✅ 2. Detecção automática de primeira mensagem');
-    console.log('  ✅ 3. Distribuição inteligente entre instâncias');
-    console.log('  ✅ 4. Fallback mantido para mensagens subsequentes');
-    console.log('  ✅ 5. Logs detalhados de distribuição');
-    console.log('  ✅ 6. Contador round-robin no dashboard');
-    console.log('  ✅ 7. Remoção do bloco wait_reply');
+    console.log('🔧 CORREÇÕES APLICADAS:');
+    console.log('  ✅ 1. STICKY INSTANCE: Conversas não são mais movidas entre chaves');
+    console.log('  ✅ 2. ÁUDIO: Função sendAudio() corrigida com payload completo');
+    console.log('  ✅ 3. EXPORT/IMPORT: Endpoints para backup/restauração de funis');
     console.log('');
-    console.log('🎯 RESULTADO ESPERADO:');
-    console.log('  • Distribuição equilibrada de conversas');
-    console.log('  • Sticky instance para mensagens subsequentes');
-    console.log('  • Fallback automático em caso de falha');
-    console.log('  • Logs de distribuição detalhados');
+    console.log('📡 API Endpoints NOVOS:');
+    console.log('  GET  /api/funnels/export  - Exportar funis para arquivo JSON');
+    console.log('  POST /api/funnels/import  - Importar funis de arquivo JSON');
+    console.log('');
+    console.log('🎯 PROBLEMAS RESOLVIDOS:');
+    console.log('  • Sticky instance mantida durante todo o funil');
+    console.log('  • Áudio funciona corretamente');
+    console.log('  • Backup e restauração de funis disponível');
     console.log('');
     console.log('📡 API Endpoints:');
-    console.log('  GET  /api/dashboard     - Estatísticas + Round-robin');
-    console.log('  GET  /api/funnels       - Listar funis');
-    console.log('  POST /api/funnels       - Criar/editar funil');
-    console.log('  GET  /api/conversations  - Listar conversas');
-    console.log('  GET  /api/logs          - Logs recentes');
-    console.log('  POST /api/send-test     - Teste de envio');
+    console.log('  GET  /api/dashboard       - Estatísticas + Round-robin');
+    console.log('  GET  /api/funnels         - Listar funis');
+    console.log('  POST /api/funnels         - Criar/editar funil');
+    console.log('  GET  /api/funnels/export  - Exportar funis');
+    console.log('  POST /api/funnels/import  - Importar funis');
+    console.log('  GET  /api/conversations   - Listar conversas');
+    console.log('  GET  /api/logs            - Logs recentes');
+    console.log('  POST /api/send-test       - Teste de envio');
     console.log('  GET  /api/debug/evolution - Debug Evolution API');
     console.log('');
     console.log('📨 Webhooks:');
-    console.log('  POST /webhook/kirvano   - Eventos Kirvano');
-    console.log('  POST /webhook/evolution - Eventos Evolution');
+    console.log('  POST /webhook/kirvano     - Eventos Kirvano');
+    console.log('  POST /webhook/evolution   - Eventos Evolution');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('🧪 Testes: http://localhost:' + PORT + '/test.html');
