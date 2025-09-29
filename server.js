@@ -13,11 +13,20 @@ const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data', 'funnels.json');
 const CONVERSATIONS_FILE = path.join(__dirname, 'data', 'conversations.json');
 
-// ✅ CONFIGURAÇÕES DO SISTEMA DE HEALTH CHECK
-const HEALTH_CHECK_INTERVAL = 30000; // 30 segundos
-const HEALTH_CHECK_TIMEOUT = 10000; // 10 segundos por teste
+// ✅ CONFIGURAÇÕES INTELIGENTES DE HEALTH CHECK
+const HEALTH_CHECK_INTERVAL = 45000; // 45 segundos (otimizado)
+const HEALTH_CHECK_TIMEOUT = 8000; // 8 segundos por teste
 const MAX_CONSECUTIVE_FAILURES = 3; // 3 falhas consecutivas = offline
 const RECOVERY_CHECK_INTERVAL = 60000; // 1 minuto para instâncias offline
+
+// ✅ CONFIGURAÇÕES DE LOGS
+const LOG_SETTINGS = {
+    enabled: true,
+    showSuccessLogs: false, // ✅ Por padrão, não mostrar logs de sucesso
+    showHealthCheckLogs: false, // ✅ Por padrão, não mostrar health check success
+    showOnlyErrors: false, // Se true, só mostra erros
+    maxLogs: 1000 // Máximo de logs na memória
+};
 
 // Mapeamento dos produtos Kirvano
 const PRODUCT_MAPPING = {
@@ -28,7 +37,7 @@ const PRODUCT_MAPPING = {
 };
 
 // Instâncias Evolution (fallback sequencial)
-const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D10'];
+const INSTANCES = ['D01', 'D04', 'D05', 'D06', 'D07', 'D08', 'D10'];
 
 // ============ ARMAZENAMENTO EM MEMÓRIA ============
 let conversations = new Map();
@@ -39,33 +48,38 @@ let logs = [];
 let funis = new Map();
 let instanceRoundRobin = 0;
 
-// ✅ NOVO: SISTEMA DE MONITORAMENTO DE INSTÂNCIAS
+// ✅ NOVO: SISTEMA DE MONITORAMENTO INTELIGENTE
 let instanceHealth = new Map(); // Status de cada instância
 let instanceStats = new Map(); // Estatísticas detalhadas
 let systemAlerts = []; // Alertas do sistema
 let healthCheckActive = false; // Controle do health check
+let lastHealthCheckResults = new Map(); // Cache dos últimos resultados
 
 // Inicializar health map
 INSTANCES.forEach(instance => {
     instanceHealth.set(instance, {
-        status: 'UNKNOWN', // ONLINE, OFFLINE, UNKNOWN, TESTING
+        status: 'UNKNOWN', // ONLINE, OFFLINE, UNKNOWN, TESTING, DISCONNECTED
+        whatsappStatus: 'UNKNOWN', // ✅ NOVO: Status específico do WhatsApp
         lastCheck: null,
         lastSuccess: null,
         lastError: null,
+        lastWhatsAppCheck: null, // ✅ NOVO: Última verificação do WhatsApp
         consecutiveFailures: 0,
         responseTime: 0,
         uptime: 0,
         downtime: 0,
         totalRequests: 0,
         successfulRequests: 0,
-        failedRequests: 0
+        failedRequests: 0,
+        whatsappConnectionState: null // ✅ NOVO: Estado da conexão WhatsApp
     });
     
     instanceStats.set(instance, {
         conversationsCount: 0,
         messagesThisHour: 0,
         averageResponseTime: 0,
-        lastHourStats: []
+        lastHourStats: [],
+        whatsappUptime: 0 // ✅ NOVO: Uptime específico do WhatsApp
     });
 });
 
@@ -201,13 +215,55 @@ function createAlert(type, title, message, severity = 'warning', instanceId = nu
         systemAlerts = systemAlerts.slice(0, 100);
     }
     
-    // Log do alerta
-    addLog('SYSTEM_ALERT', `${title}: ${message}`, { alert });
+    // Log do alerta (sempre mostrar alertas)
+    addLog('SYSTEM_ALERT', `${title}: ${message}`, { alert }, true); // forceLog = true
     
     return alert;
 }
 
-// ============ HEALTH CHECK SISTEMA ============
+// ============ SISTEMA DE LOGS INTELIGENTE ============
+function addLog(type, message, data = null, forceLog = false) {
+    if (!LOG_SETTINGS.enabled && !forceLog) return;
+    
+    // ✅ FILTROS INTELIGENTES DE LOGS
+    if (!forceLog) {
+        // Se só quer erros, filtrar outros tipos
+        if (LOG_SETTINGS.showOnlyErrors && !type.includes('ERROR') && !type.includes('FAILED') && !type.includes('ALERT')) {
+            return;
+        }
+        
+        // Se não quer logs de sucesso, filtrar sucessos
+        if (!LOG_SETTINGS.showSuccessLogs && type.includes('SUCCESS')) {
+            return;
+        }
+        
+        // Se não quer health check logs, filtrar
+        if (!LOG_SETTINGS.showHealthCheckLogs && type.includes('HEALTH_CHECK_SUCCESS')) {
+            return;
+        }
+    }
+    
+    const log = {
+        id: Date.now() + Math.random(),
+        timestamp: new Date(),
+        type,
+        message,
+        data,
+        important: forceLog || type.includes('ERROR') || type.includes('ALERT') || type.includes('FAILED')
+    };
+    
+    logs.unshift(log);
+    if (logs.length > LOG_SETTINGS.maxLogs) {
+        logs = logs.slice(0, LOG_SETTINGS.maxLogs);
+    }
+    
+    // Console log sempre para tipos importantes ou se configurado
+    if (log.important || LOG_SETTINGS.showHealthCheckLogs) {
+        console.log('[' + log.timestamp.toISOString() + '] ' + type + ': ' + message);
+    }
+}
+
+// ============ HEALTH CHECK INTELIGENTE ============
 async function checkInstanceHealth(instanceName) {
     const startTime = Date.now();
     const health = instanceHealth.get(instanceName);
@@ -217,8 +273,8 @@ async function checkInstanceHealth(instanceName) {
     health.totalRequests++;
     
     try {
-        // Teste simples: verificar se instância responde
-        const response = await axios.get(`${EVOLUTION_BASE_URL}/instance/connectionState/${instanceName}`, {
+        // ✅ PASSO 1: Verificar se Evolution API responde
+        const connectionResponse = await axios.get(`${EVOLUTION_BASE_URL}/instance/connectionState/${instanceName}`, {
             headers: { 'apikey': EVOLUTION_API_KEY },
             timeout: HEALTH_CHECK_TIMEOUT,
             validateStatus: () => true // Aceita qualquer status para análise
@@ -226,39 +282,90 @@ async function checkInstanceHealth(instanceName) {
         
         const responseTime = Date.now() - startTime;
         health.responseTime = responseTime;
+        health.lastWhatsAppCheck = new Date();
         
-        // Considerar sucesso se status 200-299 ou instância conectada
-        const isHealthy = response.status >= 200 && response.status < 300;
+        // ✅ PASSO 2: Analisar resposta da Evolution API
+        const isAPIHealthy = connectionResponse.status >= 200 && connectionResponse.status < 300;
         
-        if (isHealthy) {
-            // SUCESSO
-            health.status = 'ONLINE';
-            health.lastSuccess = new Date();
-            health.consecutiveFailures = 0;
-            health.successfulRequests++;
-            
-            // Atualizar uptime
-            if (health.lastError) {
-                health.uptime += Date.now() - health.lastError.getTime();
+        if (!isAPIHealthy) {
+            throw new Error(`Evolution API error: HTTP ${connectionResponse.status}`);
+        }
+        
+        // ✅ PASSO 3: VERIFICAR STATUS REAL DO WHATSAPP
+        const connectionData = connectionResponse.data;
+        let whatsappState = 'UNKNOWN';
+        let finalStatus = 'OFFLINE';
+        
+        // Verificar diferentes formatos de resposta da Evolution API
+        if (connectionData) {
+            // Formato 1: { state: 'open'/'close' }
+            if (connectionData.state) {
+                whatsappState = connectionData.state;
+                finalStatus = whatsappState === 'open' ? 'ONLINE' : 'OFFLINE';
             }
-            
-            addLog('HEALTH_CHECK_SUCCESS', `${instanceName}: ONLINE (${responseTime}ms)`, { 
+            // Formato 2: { instance: { state: 'open' } }
+            else if (connectionData.instance && connectionData.instance.state) {
+                whatsappState = connectionData.instance.state;
+                finalStatus = whatsappState === 'open' ? 'ONLINE' : 'OFFLINE';
+            }
+            // Formato 3: { status: 'connected'/'disconnected' }
+            else if (connectionData.status) {
+                whatsappState = connectionData.status;
+                finalStatus = (whatsappState === 'connected' || whatsappState === 'open') ? 'ONLINE' : 'OFFLINE';
+            }
+            // Formato 4: Resposta com sucesso mas sem dados claros
+            else if (connectionResponse.status === 200) {
+                // Se API responde 200 mas sem dados claros, assumir online com cautela
+                whatsappState = 'ASSUMED_ONLINE';
+                finalStatus = 'ONLINE';
+            }
+        }
+        
+        // ✅ PASSO 4: Atualizar status baseado na verificação real
+        health.status = finalStatus;
+        health.whatsappStatus = whatsappState;
+        health.whatsappConnectionState = connectionData;
+        health.lastSuccess = new Date();
+        health.consecutiveFailures = 0;
+        health.successfulRequests++;
+        
+        // Atualizar uptime
+        if (health.lastError) {
+            health.uptime += Date.now() - health.lastError.getTime();
+        }
+        
+        // ✅ LOGS INTELIGENTES - Só mostrar mudanças importantes
+        const previousResult = lastHealthCheckResults.get(instanceName);
+        const statusChanged = !previousResult || previousResult.status !== finalStatus;
+        
+        if (statusChanged || finalStatus === 'OFFLINE') {
+            addLog('HEALTH_STATUS_CHANGE', `${instanceName}: ${finalStatus} (WhatsApp: ${whatsappState}, ${responseTime}ms)`, { 
                 instanceName, 
                 responseTime,
-                status: response.status
-            });
-            
-            return { success: true, responseTime, status: response.status };
-            
+                whatsappState,
+                previousStatus: previousResult?.status,
+                statusChanged
+            }, true); // Force log para mudanças importantes
         } else {
-            throw new Error(`HTTP ${response.status}: ${response.data?.message || 'Instância não saudável'}`);
+            // Log silencioso para sucessos constantes
+            addLog('HEALTH_CHECK_SUCCESS', `${instanceName}: ${finalStatus} (${responseTime}ms)`, { 
+                instanceName, 
+                responseTime,
+                whatsappState
+            });
         }
+        
+        // Salvar resultado para comparação futura
+        lastHealthCheckResults.set(instanceName, { status: finalStatus, whatsappState, timestamp: new Date() });
+        
+        return { success: true, responseTime, status: connectionResponse.status, whatsappState, finalStatus };
         
     } catch (error) {
         // FALHA
         const responseTime = Date.now() - startTime;
         health.responseTime = responseTime;
         health.status = 'OFFLINE';
+        health.whatsappStatus = 'DISCONNECTED';
         health.lastError = new Date();
         health.consecutiveFailures++;
         health.failedRequests++;
@@ -268,17 +375,19 @@ async function checkInstanceHealth(instanceName) {
             health.downtime += Date.now() - health.lastSuccess.getTime();
         }
         
-        addLog('HEALTH_CHECK_FAILED', `${instanceName}: OFFLINE (${health.consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`, { 
+        // ✅ SEMPRE LOGAR ERROS (importantes)
+        addLog('HEALTH_CHECK_FAILED', `${instanceName}: OFFLINE - ${error.message} (${health.consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})`, { 
             instanceName, 
             error: error.message,
-            consecutiveFailures: health.consecutiveFailures
-        });
+            consecutiveFailures: health.consecutiveFailures,
+            responseTime
+        }, true); // Force log para erros
         
         // Criar alerta se atingiu limite de falhas
         if (health.consecutiveFailures === MAX_CONSECUTIVE_FAILURES) {
             createAlert('INSTANCE_DOWN', 
                 `Instância ${instanceName} OFFLINE`, 
-                `Instância não responde após ${MAX_CONSECUTIVE_FAILURES} tentativas. Migração automática iniciada.`,
+                `WhatsApp desconectado após ${MAX_CONSECUTIVE_FAILURES} tentativas. Migração automática iniciada.`,
                 'error',
                 instanceName
             );
@@ -286,6 +395,9 @@ async function checkInstanceHealth(instanceName) {
             // Iniciar migração automática
             await migrateConversationsFromInstance(instanceName);
         }
+        
+        // Salvar resultado de falha
+        lastHealthCheckResults.set(instanceName, { status: 'OFFLINE', whatsappState: 'DISCONNECTED', timestamp: new Date() });
         
         return { success: false, error: error.message, responseTime };
     }
@@ -303,11 +415,11 @@ async function migrateConversationsFromInstance(offlineInstance) {
     });
     
     if (conversationsToMigrate.length === 0) {
-        addLog('MIGRATION_NO_CONVERSATIONS', `Nenhuma conversa para migrar da ${offlineInstance}`);
+        addLog('MIGRATION_NO_CONVERSATIONS', `Nenhuma conversa para migrar da ${offlineInstance}`, null, true);
         return;
     }
     
-    // Encontrar melhor instância para migração (com menos conversas)
+    // Encontrar melhor instância para migração (com menos conversas E online)
     const targetInstance = findBestInstanceForMigration();
     
     if (!targetInstance) {
@@ -332,7 +444,7 @@ async function migrateConversationsFromInstance(offlineInstance) {
         to: targetInstance,
         count: migratedCount,
         conversations: conversationsToMigrate.slice(0, 5) // Primeiras 5 para log
-    });
+    }, true);
     
     createAlert('MIGRATION', 
         'Migração automática concluída', 
@@ -356,7 +468,8 @@ function findBestInstanceForMigration() {
     const healthyInstances = [];
     
     instanceHealth.forEach((health, instanceName) => {
-        if (health.status === 'ONLINE') {
+        // ✅ NOVO: Só considera instâncias realmente online (WhatsApp conectado)
+        if (health.status === 'ONLINE' && health.whatsappStatus !== 'DISCONNECTED') {
             const stats = instanceStats.get(instanceName);
             healthyInstances.push({
                 name: instanceName,
@@ -385,7 +498,7 @@ function findBestInstanceForMigration() {
 async function runHealthCheck() {
     if (!healthCheckActive) return;
     
-    addLog('HEALTH_CHECK_START', 'Iniciando verificação de saúde das instâncias');
+    addLog('HEALTH_CHECK_START', `Verificando ${INSTANCES.length} instâncias`, null, false);
     
     const healthPromises = INSTANCES.map(instance => checkInstanceHealth(instance));
     
@@ -398,11 +511,22 @@ async function runHealthCheck() {
         // Verificar recuperação de instâncias
         await checkInstanceRecovery();
         
+        // ✅ Log resumido do resultado
+        const onlineCount = getHealthyInstances().length;
+        const totalCount = INSTANCES.length;
+        const offlineCount = totalCount - onlineCount;
+        
+        if (offlineCount > 0) {
+            addLog('HEALTH_CHECK_SUMMARY', `Health check concluído: ${onlineCount}/${totalCount} instâncias online, ${offlineCount} offline`, {
+                onlineCount, 
+                offlineCount,
+                totalCount
+            }, true); // Force log se há instâncias offline
+        }
+        
     } catch (error) {
-        addLog('HEALTH_CHECK_ERROR', 'Erro no health check: ' + error.message);
+        addLog('HEALTH_CHECK_ERROR', 'Erro no health check: ' + error.message, null, true);
     }
-    
-    addLog('HEALTH_CHECK_COMPLETE', 'Verificação de saúde concluída');
 }
 
 // ============ VERIFICAR RECUPERAÇÃO DE INSTÂNCIAS ============
@@ -417,20 +541,20 @@ async function checkInstanceRecovery() {
     
     if (offlineInstances.length === 0) return;
     
-    addLog('RECOVERY_CHECK', `Verificando recuperação de ${offlineInstances.length} instâncias offline`);
+    addLog('RECOVERY_CHECK', `Verificando recuperação de ${offlineInstances.length} instâncias offline`, null, true);
     
     for (const instanceName of offlineInstances) {
         const result = await checkInstanceHealth(instanceName);
         
-        if (result.success) {
+        if (result.success && result.finalStatus === 'ONLINE') {
             createAlert('INSTANCE_UP', 
                 `Instância ${instanceName} RECUPERADA`, 
-                `Instância voltou a responder e está disponível para novas conversas.`,
+                `WhatsApp reconectado e instância disponível para novas conversas.`,
                 'info',
                 instanceName
             );
             
-            addLog('INSTANCE_RECOVERED', `${instanceName} voltou online automaticamente`);
+            addLog('INSTANCE_RECOVERED', `${instanceName} voltou online automaticamente (WhatsApp: ${result.whatsappState})`, null, true);
         }
     }
 }
@@ -465,15 +589,16 @@ function updateInstanceStatistics() {
 function startHealthCheckSystem() {
     healthCheckActive = true;
     
-    addLog('HEALTH_SYSTEM_START', 'Sistema de monitoramento de instâncias iniciado', {
-        interval: HEALTH_CHECK_INTERVAL,
-        timeout: HEALTH_CHECK_TIMEOUT,
-        maxFailures: MAX_CONSECUTIVE_FAILURES
-    });
+    addLog('HEALTH_SYSTEM_START', 'Sistema de monitoramento inteligente iniciado', {
+        interval: HEALTH_CHECK_INTERVAL/1000 + 's',
+        timeout: HEALTH_CHECK_TIMEOUT/1000 + 's',
+        maxFailures: MAX_CONSECUTIVE_FAILURES,
+        logSettings: LOG_SETTINGS
+    }, true);
     
     createAlert('SYSTEM', 
         'Sistema de monitoramento iniciado', 
-        `Health check ativo com intervalo de ${HEALTH_CHECK_INTERVAL/1000}s`,
+        `Health check inteligente ativo com verificação real do WhatsApp`,
         'info'
     );
     
@@ -489,7 +614,7 @@ function startHealthCheckSystem() {
 
 function stopHealthCheckSystem() {
     healthCheckActive = false;
-    addLog('HEALTH_SYSTEM_STOP', 'Sistema de monitoramento de instâncias parado');
+    addLog('HEALTH_SYSTEM_STOP', 'Sistema de monitoramento parado', null, true);
 }
 
 // ============ PERSISTÊNCIA DE DADOS ============
@@ -511,7 +636,7 @@ async function saveFunnelsToFile() {
         await fs.writeFile(DATA_FILE, JSON.stringify(funnelsArray, null, 2));
         addLog('DATA_SAVE', 'Funis salvos em arquivo: ' + funnelsArray.length + ' funis');
     } catch (error) {
-        addLog('DATA_SAVE_ERROR', 'Erro ao salvar funis: ' + error.message);
+        addLog('DATA_SAVE_ERROR', 'Erro ao salvar funis: ' + error.message, null, true);
     }
 }
 
@@ -531,7 +656,7 @@ async function loadFunnelsFromFile() {
         addLog('DATA_LOAD', 'Funis carregados do arquivo: ' + funnelsArray.length + ' funis');
         return true;
     } catch (error) {
-        addLog('DATA_LOAD_ERROR', 'Erro ao carregar funis (usando padrões): ' + error.message);
+        addLog('DATA_LOAD_ERROR', 'Erro ao carregar funis (usando padrões): ' + error.message, null, true);
         return false;
     }
 }
@@ -555,7 +680,7 @@ async function saveConversationsToFile() {
         
         addLog('DATA_SAVE', 'Conversas salvas: ' + conversationsArray.length + ' conversas');
     } catch (error) {
-        addLog('DATA_SAVE_ERROR', 'Erro ao salvar conversas: ' + error.message);
+        addLog('DATA_SAVE_ERROR', 'Erro ao salvar conversas: ' + error.message, null, true);
     }
 }
 
@@ -742,21 +867,6 @@ function checkIdempotency(key, ttl = 5 * 60 * 1000) {
     return false;
 }
 
-function addLog(type, message, data = null) {
-    const log = {
-        id: Date.now() + Math.random(),
-        timestamp: new Date(),
-        type,
-        message,
-        data
-    };
-    logs.unshift(log);
-    if (logs.length > 1000) {
-        logs = logs.slice(0, 1000);
-    }
-    console.log('[' + log.timestamp.toISOString() + '] ' + type + ': ' + message);
-}
-
 // ============ EVOLUTION API ADAPTER ============
 async function sendToEvolution(instanceName, endpoint, payload) {
     const url = EVOLUTION_BASE_URL + endpoint + '/' + instanceName;
@@ -861,24 +971,26 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
     const existingStickyInstance = stickyInstances.get(remoteJid);
     
     if (existingStickyInstance) {
-        // ✅ NOVO: Verificar se sticky instance está saudável
+        // ✅ NOVO: Verificar se sticky instance está REALMENTE saudável (WhatsApp conectado)
         const stickyHealth = instanceHealth.get(existingStickyInstance);
         
-        if (stickyHealth && stickyHealth.status === 'ONLINE') {
-            // Sticky instance está saudável - usar ela primeiro
+        if (stickyHealth && stickyHealth.status === 'ONLINE' && stickyHealth.whatsappStatus !== 'DISCONNECTED') {
+            // Sticky instance está realmente saudável - usar ela primeiro
             instancesToTry = [existingStickyInstance, ...getHealthyInstancesExcept(existingStickyInstance)];
             addLog('STICKY_INSTANCE_HEALTHY', `Usando sticky instance saudável ${existingStickyInstance}`, { 
                 remoteJid, 
-                isFirstMessage 
+                isFirstMessage,
+                whatsappStatus: stickyHealth.whatsappStatus
             });
         } else {
-            // ✅ NOVO: Sticky instance não está saudável - migrar automaticamente
-            addLog('STICKY_INSTANCE_UNHEALTHY', `Sticky instance ${existingStickyInstance} não saudável, migrando...`, { 
+            // ✅ NOVO: Sticky instance com WhatsApp desconectado - migrar automaticamente
+            addLog('STICKY_INSTANCE_UNHEALTHY', `Sticky instance ${existingStickyInstance} com WhatsApp desconectado, migrando...`, { 
                 remoteJid,
-                stickyHealth: stickyHealth?.status
-            });
+                stickyHealth: stickyHealth?.status,
+                whatsappStatus: stickyHealth?.whatsappStatus
+            }, true);
             
-            // Migrar para instância saudável
+            // Migrar para instância realmente saudável
             const newInstance = findBestInstanceForMigration();
             if (newInstance) {
                 stickyInstances.set(remoteJid, newInstance);
@@ -887,23 +999,24 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
                 addLog('STICKY_INSTANCE_MIGRATED', `Conversa migrada automaticamente: ${existingStickyInstance} → ${newInstance}`, {
                     remoteJid,
                     from: existingStickyInstance,
-                    to: newInstance
-                });
+                    to: newInstance,
+                    reason: 'WhatsApp desconectado'
+                }, true);
                 
                 createAlert('MIGRATION', 
                     'Migração automática de conversa', 
-                    `Conversa migrada de ${existingStickyInstance} (offline) para ${newInstance}`,
+                    `Conversa migrada de ${existingStickyInstance} (WhatsApp offline) para ${newInstance}`,
                     'warning',
                     existingStickyInstance
                 );
             } else {
-                // Nenhuma instância saudável disponível - usar todas e esperar o melhor
+                // Nenhuma instância realmente saudável disponível - tentar todas
                 instancesToTry = INSTANCES;
-                addLog('NO_HEALTHY_INSTANCES', 'Nenhuma instância saudável disponível, tentando todas', { remoteJid });
+                addLog('NO_HEALTHY_INSTANCES', 'Nenhuma instância com WhatsApp conectado disponível, tentando todas', { remoteJid }, true);
             }
         }
     } else if (isFirstMessage) {
-        // ✅ NOVO: Round-robin apenas entre instâncias saudáveis
+        // ✅ NOVO: Round-robin apenas entre instâncias com WhatsApp realmente conectado
         const healthyInstances = getHealthyInstances();
         
         if (healthyInstances.length > 0) {
@@ -919,13 +1032,13 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
                 distributionNumber: instanceRoundRobin
             });
         } else {
-            // Nenhuma instância marcada como saudável - usar todas
+            // Nenhuma instância com WhatsApp conectado - usar todas e esperar o melhor
             instancesToTry = INSTANCES;
             instanceRoundRobin++;
-            addLog('NO_HEALTHY_FIRST_MESSAGE', 'Nenhuma instância saudável para primeira mensagem, tentando todas', { remoteJid });
+            addLog('NO_HEALTHY_FIRST_MESSAGE', 'Nenhuma instância com WhatsApp conectado para primeira mensagem, tentando todas', { remoteJid }, true);
         }
     } else {
-        // Mensagem subsequente sem sticky - usar instâncias saudáveis
+        // Mensagem subsequente sem sticky - usar instâncias realmente saudáveis
         instancesToTry = getHealthyInstances();
         if (instancesToTry.length === 0) {
             instancesToTry = INSTANCES;
@@ -936,10 +1049,12 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
     
     for (const instanceName of instancesToTry) {
         try {
+            const instanceHealth_current = instanceHealth.get(instanceName);
             addLog('SEND_ATTEMPT', `Tentando ${instanceName}`, { 
                 type, 
                 remoteJid,
-                instanceHealth: instanceHealth.get(instanceName)?.status,
+                instanceStatus: instanceHealth_current?.status,
+                whatsappStatus: instanceHealth_current?.whatsappStatus,
                 isFirstMessage
             });
             
@@ -975,7 +1090,8 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
                     remoteJid, 
                     type,
                     isFirstMessage,
-                    instanceHealth: instanceHealth.get(instanceName)?.status
+                    instanceStatus: instanceHealth_current?.status,
+                    whatsappStatus: instanceHealth_current?.whatsappStatus
                 });
                 
                 return { success: true, instanceName };
@@ -984,16 +1100,17 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
                 addLog('SEND_FAILED', `${instanceName} falhou: ${JSON.stringify(lastError)}`, { 
                     remoteJid, 
                     type,
-                    instanceHealth: instanceHealth.get(instanceName)?.status
-                });
+                    instanceStatus: instanceHealth_current?.status,
+                    whatsappStatus: instanceHealth_current?.whatsappStatus
+                }, true);
             }
         } catch (error) {
             lastError = error.message;
             addLog('SEND_ERROR', `${instanceName} erro: ${error.message}`, { 
                 remoteJid, 
                 type,
-                instanceHealth: instanceHealth.get(instanceName)?.status
-            });
+                instanceStatus: instanceHealth.get(instanceName)?.status
+            }, true);
         }
     }
     
@@ -1004,15 +1121,16 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
         'error'
     );
     
-    addLog('SEND_ALL_FAILED', 'Todas as instâncias falharam para ' + remoteJid, { lastError });
+    addLog('SEND_ALL_FAILED', 'Todas as instâncias falharam para ' + remoteJid, { lastError }, true);
     return { success: false, error: lastError };
 }
 
-// ============ FUNÇÕES AUXILIARES DO HEALTH CHECK ============
+// ============ FUNÇÕES AUXILIARES DO HEALTH CHECK INTELIGENTE ============
 function getHealthyInstances() {
     const healthy = [];
     instanceHealth.forEach((health, instanceName) => {
-        if (health.status === 'ONLINE') {
+        // ✅ NOVO: Só considera instâncias com WhatsApp realmente conectado
+        if (health.status === 'ONLINE' && health.whatsappStatus !== 'DISCONNECTED') {
             healthy.push(instanceName);
         }
     });
@@ -1137,7 +1255,7 @@ async function sendStep(remoteJid) {
         
         addLog('STEP_SUCCESS', 'Passo executado com sucesso: ' + conversation.funnelId + '[' + conversation.stepIndex + ']');
     } else {
-        addLog('STEP_FAILED', 'Falha no envio do passo: ' + result.error, { conversation });
+        addLog('STEP_FAILED', 'Falha no envio do passo: ' + result.error, { conversation }, true);
     }
 }
 
@@ -1166,20 +1284,20 @@ async function sendTypingIndicator(remoteJid, durationSeconds = 3) {
         addLog('TYPING_END', 'Finalizando digitação para ' + remoteJid);
         
     } catch (error) {
-        addLog('TYPING_ERROR', 'Erro ao enviar digitação: ' + error.message, { remoteJid });
+        addLog('TYPING_ERROR', 'Erro ao enviar digitação: ' + error.message, { remoteJid }, true);
     }
 }
 
 async function advanceConversation(remoteJid, replyText, reason) {
     const conversation = conversations.get(remoteJid);
     if (!conversation) {
-        addLog('ADVANCE_ERROR', 'Tentativa de avançar conversa inexistente: ' + remoteJid);
+        addLog('ADVANCE_ERROR', 'Tentativa de avançar conversa inexistente: ' + remoteJid, null, true);
         return;
     }
     
     const funnel = funis.get(conversation.funnelId);
     if (!funnel) {
-        addLog('ADVANCE_ERROR', 'Funil não encontrado: ' + conversation.funnelId, { remoteJid });
+        addLog('ADVANCE_ERROR', 'Funil não encontrado: ' + conversation.funnelId, { remoteJid }, true);
         return;
     }
     
@@ -1188,7 +1306,7 @@ async function advanceConversation(remoteJid, replyText, reason) {
         addLog('ADVANCE_ERROR', 'Passo atual não encontrado: ' + conversation.stepIndex, { 
             remoteJid, 
             funnelId: conversation.funnelId 
-        });
+        }, true);
         return;
     }
     
@@ -1337,7 +1455,7 @@ app.post('/webhook/kirvano', async (req, res) => {
         res.json({ success: true, message: 'Processado', funnelId });
         
     } catch (error) {
-        addLog('KIRVANO_ERROR', error.message, { body: req.body });
+        addLog('KIRVANO_ERROR', error.message, { body: req.body }, true);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -1411,14 +1529,14 @@ app.post('/webhook/evolution', async (req, res) => {
         res.json({ success: true });
         
     } catch (error) {
-        addLog('EVOLUTION_ERROR', error.message, { body: req.body });
+        addLog('EVOLUTION_ERROR', error.message, { body: req.body }, true);
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
 // ============ API ENDPOINTS ============
 
-// ✅ NOVO: Endpoint de monitoramento de instâncias
+// ✅ NOVO: Endpoint de monitoramento de instâncias com status WhatsApp real
 app.get('/api/health', (req, res) => {
     const healthData = {};
     
@@ -1433,6 +1551,12 @@ app.get('/api/health', (req, res) => {
                 averageResponseTime: stats.averageResponseTime,
                 successRate: health.totalRequests > 0 ? 
                     ((health.successfulRequests / health.totalRequests) * 100).toFixed(2) + '%' : 'N/A'
+            },
+            // ✅ NOVO: Status detalhado do WhatsApp
+            whatsappDetails: {
+                status: health.whatsappStatus,
+                lastCheck: health.lastWhatsAppCheck,
+                connectionState: health.whatsappConnectionState
             }
         };
     });
@@ -1443,7 +1567,8 @@ app.get('/api/health', (req, res) => {
         offlineInstances: INSTANCES.length - getHealthyInstances().length,
         totalConversations: conversations.size,
         healthCheckActive: healthCheckActive,
-        lastHealthCheck: Math.max(...Array.from(instanceHealth.values()).map(h => h.lastCheck ? h.lastCheck.getTime() : 0))
+        lastHealthCheck: Math.max(...Array.from(instanceHealth.values()).map(h => h.lastCheck ? h.lastCheck.getTime() : 0)),
+        logSettings: LOG_SETTINGS // ✅ NOVO: Configurações de log
     };
     
     res.json({
@@ -1452,6 +1577,29 @@ app.get('/api/health', (req, res) => {
         instances: healthData,
         timestamp: new Date().toISOString()
     });
+});
+
+// ✅ NOVO: Configuração de logs
+app.post('/api/logs/config', (req, res) => {
+    try {
+        const { enabled, showSuccessLogs, showHealthCheckLogs, showOnlyErrors, maxLogs } = req.body;
+        
+        if (typeof enabled === 'boolean') LOG_SETTINGS.enabled = enabled;
+        if (typeof showSuccessLogs === 'boolean') LOG_SETTINGS.showSuccessLogs = showSuccessLogs;
+        if (typeof showHealthCheckLogs === 'boolean') LOG_SETTINGS.showHealthCheckLogs = showHealthCheckLogs;
+        if (typeof showOnlyErrors === 'boolean') LOG_SETTINGS.showOnlyErrors = showOnlyErrors;
+        if (typeof maxLogs === 'number' && maxLogs > 0) LOG_SETTINGS.maxLogs = maxLogs;
+        
+        addLog('LOG_CONFIG_UPDATED', 'Configuração de logs atualizada', LOG_SETTINGS, true);
+        
+        res.json({
+            success: true,
+            message: 'Configuração de logs atualizada',
+            settings: LOG_SETTINGS
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 // ✅ NOVO: Endpoint de alertas do sistema
@@ -1519,6 +1667,7 @@ app.get('/api/dashboard', (req, res) => {
         instanceUsage[inst] = {
             conversations: stats.conversationsCount,
             status: health.status,
+            whatsappStatus: health.whatsappStatus, // ✅ NOVO
             responseTime: health.responseTime
         };
     });
@@ -1539,7 +1688,8 @@ app.get('/api/dashboard', (req, res) => {
         next_instance_in_queue: nextInstance,
         instance_distribution: instanceUsage,
         unacknowledged_alerts: systemAlerts.filter(a => !a.acknowledged).length,
-        health_check_active: healthCheckActive
+        health_check_active: healthCheckActive,
+        log_settings: LOG_SETTINGS // ✅ NOVO
     };
     
     res.json({
@@ -1630,7 +1780,7 @@ app.get('/api/funnels/export', (req, res) => {
         res.json(exportData);
         
     } catch (error) {
-        addLog('FUNNEL_EXPORT_ERROR', error.message);
+        addLog('FUNNEL_EXPORT_ERROR', error.message, null, true);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -1687,7 +1837,7 @@ app.post('/api/funnels/import', (req, res) => {
         });
         
     } catch (error) {
-        addLog('FUNNEL_IMPORT_ERROR', error.message);
+        addLog('FUNNEL_IMPORT_ERROR', error.message, null, true);
         res.status(500).json({ success: false, error: error.message });
     }
 });
@@ -1708,7 +1858,8 @@ app.get('/api/conversations', (req, res) => {
         orderCode: conv.orderCode,
         amount: conv.amount,
         stickyInstance: stickyInstances.get(remoteJid),
-        instanceHealth: instanceHealth.get(stickyInstances.get(remoteJid))?.status
+        instanceHealth: instanceHealth.get(stickyInstances.get(remoteJid))?.status, // ✅ NOVO
+        instanceWhatsAppStatus: instanceHealth.get(stickyInstances.get(remoteJid))?.whatsappStatus // ✅ NOVO
     }));
     
     // Ordenar por mais recente primeiro
@@ -1720,19 +1871,35 @@ app.get('/api/conversations', (req, res) => {
     });
 });
 
-// Logs recentes
+// Logs recentes com filtros
 app.get('/api/logs', (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
-    const recentLogs = logs.slice(0, limit).map(log => ({
+    const type = req.query.type; // Filtro por tipo
+    const importantOnly = req.query.important === 'true'; // Só logs importantes
+    
+    let filteredLogs = logs;
+    
+    if (importantOnly) {
+        filteredLogs = logs.filter(log => log.important);
+    }
+    
+    if (type) {
+        filteredLogs = filteredLogs.filter(log => log.type.includes(type.toUpperCase()));
+    }
+    
+    const recentLogs = filteredLogs.slice(0, limit).map(log => ({
         id: log.id,
         timestamp: log.timestamp,
         type: log.type,
-        message: log.message
+        message: log.message,
+        important: log.important
     }));
     
     res.json({
         success: true,
-        data: recentLogs
+        data: recentLogs,
+        total: filteredLogs.length,
+        settings: LOG_SETTINGS
     });
 });
 
@@ -1779,14 +1946,10 @@ app.get('/api/debug/evolution', async (req, res) => {
     // Testar conexão com primeiro endpoint
     try {
         const testInstance = INSTANCES[0];
-        const url = EVOLUTION_BASE_URL + '/message/sendText/' + testInstance;
+        const url = EVOLUTION_BASE_URL + '/instance/connectionState/' + testInstance;
         
-        const response = await axios.post(url, {
-            number: '5511999999999',
-            text: 'teste'
-        }, {
+        const response = await axios.get(url, {
             headers: {
-                'Content-Type': 'application/json',
                 'apikey': EVOLUTION_API_KEY
             },
             timeout: 10000,
@@ -1839,52 +2002,40 @@ async function initializeData() {
 // ============ INICIALIZAÇÃO ============
 app.listen(PORT, async () => {
     console.log('='.repeat(80));
-    console.log('🚀 KIRVANO SYSTEM - SISTEMA AVANÇADO DE MONITORAMENTO');
+    console.log('🚀 KIRVANO SYSTEM - HEALTH CHECK INTELIGENTE [VERSÃO ULTRA AVANÇADA]');
     console.log('='.repeat(80));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
     console.log('API Key configurada:', EVOLUTION_API_KEY !== 'SUA_API_KEY_AQUI');
     console.log('Instâncias:', INSTANCES.length);
     console.log('');
-    console.log('🏥 SISTEMA DE HEALTH CHECK:');
-    console.log('  ✅ Monitoramento automático a cada', HEALTH_CHECK_INTERVAL/1000, 'segundos');
-    console.log('  ✅ Detecção de falhas após', MAX_CONSECUTIVE_FAILURES, 'tentativas');  
-    console.log('  ✅ Migração automática de conversas');
-    console.log('  ✅ Recovery automático quando instâncias voltam');
-    console.log('  ✅ Dashboard visual em tempo real');
-    console.log('  ✅ Sistema de alertas integrado');
+    console.log('🧠 HEALTH CHECK INTELIGENTE:');
+    console.log('  ✅ Verifica conexão REAL do WhatsApp (não só Evolution API)');
+    console.log('  ✅ Detecta instâncias com WhatsApp desconectado');
+    console.log('  ✅ Migração automática baseada no status real');
+    console.log('  ✅ Logs inteligentes (só mostra mudanças importantes)');
+    console.log('  ✅ Intervalo:', HEALTH_CHECK_INTERVAL/1000 + 's');
     console.log('');
-    console.log('🔧 FUNCIONALIDADES AVANÇADAS:');
-    console.log('  ✅ Circuit Breaker Pattern');
-    console.log('  ✅ Health Check inteligente');
-    console.log('  ✅ Migração automática de conversas');
-    console.log('  ✅ Sticky Instance mantida (corrigido)');
-    console.log('  ✅ Suporte completo a áudio (corrigido)');
-    console.log('  ✅ Export/Import de funis (corrigido)');
-    console.log('  ✅ Distribuição inteligente por saúde');
-    console.log('  ✅ Alertas em tempo real');
-    console.log('  ✅ Estatísticas detalhadas');
+    console.log('📊 LOGS CONFIGURÁVEIS:');
+    console.log('  ✅ Mostrar sucessos:', LOG_SETTINGS.showSuccessLogs);
+    console.log('  ✅ Mostrar health checks:', LOG_SETTINGS.showHealthCheckLogs);
+    console.log('  ✅ Só erros:', LOG_SETTINGS.showOnlyErrors);
+    console.log('  ✅ Máximo logs:', LOG_SETTINGS.maxLogs);
     console.log('');
-    console.log('📡 API Endpoints NOVOS:');
-    console.log('  GET  /api/health              - Status detalhado das instâncias');
-    console.log('  GET  /api/alerts              - Alertas do sistema');
+    console.log('🎯 MELHORIAS IMPLEMENTADAS:');
+    console.log('  ✅ Status baseado na conexão REAL do WhatsApp');
+    console.log('  ✅ Migração só para instâncias REALMENTE saudáveis');
+    console.log('  ✅ Logs silenciosos para operação normal');
+    console.log('  ✅ Alertas só para problemas reais');
+    console.log('  ✅ Dashboard preciso com status WhatsApp');
+    console.log('');
+    console.log('📡 API Endpoints NOVOS/MELHORADOS:');
+    console.log('  GET  /api/health              - Status REAL das instâncias + WhatsApp');
+    console.log('  POST /api/logs/config         - Configurar tipos de logs');
+    console.log('  GET  /api/logs?important=true - Logs importantes apenas');
+    console.log('  GET  /api/alerts              - Alertas inteligentes');
     console.log('  POST /api/alerts/:id/acknowledge - Reconhecer alerta');
     console.log('  POST /api/health/toggle       - Controlar health check');
-    console.log('');
-    console.log('📡 API Endpoints EXISTENTES:');
-    console.log('  GET  /api/dashboard           - Dashboard com health status');
-    console.log('  GET  /api/funnels             - Listar funis');
-    console.log('  POST /api/funnels             - Criar/editar funil');
-    console.log('  GET  /api/funnels/export      - Exportar funis');
-    console.log('  POST /api/funnels/import      - Importar funis');
-    console.log('  GET  /api/conversations       - Conversas (com health status)');
-    console.log('  GET  /api/logs                - Logs recentes');
-    console.log('  POST /api/send-test           - Teste de envio');
-    console.log('  GET  /api/debug/evolution     - Debug Evolution API');
-    console.log('');
-    console.log('📨 Webhooks:');
-    console.log('  POST /webhook/kirvano         - Eventos Kirvano');
-    console.log('  POST /webhook/evolution       - Eventos Evolution');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('🧪 Testes: http://localhost:' + PORT + '/test.html');
@@ -1893,7 +2044,7 @@ app.listen(PORT, async () => {
     // Carregar dados persistidos
     await initializeData();
     
-    // ✅ INICIALIZAR SISTEMA DE HEALTH CHECK
-    console.log('🏥 Iniciando sistema de monitoramento...');
+    // ✅ INICIALIZAR HEALTH CHECK INTELIGENTE
+    console.log('🧠 Iniciando health check inteligente...');
     startHealthCheckSystem();
 });
