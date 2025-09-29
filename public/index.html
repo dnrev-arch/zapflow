@@ -66,6 +66,64 @@
             color: #991b1b;
         }
 
+        /* ✅ NOVO: Toggle de monitoramento */
+        .monitoring-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-left: auto;
+        }
+
+        .monitoring-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: #f3f4f6;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .monitoring-toggle.active {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .monitoring-toggle.paused {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .toggle-switch {
+            width: 32px;
+            height: 18px;
+            background: #d1d5db;
+            border-radius: 9px;
+            position: relative;
+            transition: all 0.2s;
+        }
+
+        .toggle-switch.active {
+            background: #10b981;
+        }
+
+        .toggle-switch::after {
+            content: '';
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            width: 14px;
+            height: 14px;
+            background: white;
+            border-radius: 7px;
+            transition: all 0.2s;
+        }
+
+        .toggle-switch.active::after {
+            left: 16px;
+        }
+
         .header p {
             color: #6b7280;
             margin-bottom: 20px;
@@ -109,26 +167,6 @@
             font-size: 12px;
             color: #6b7280;
             margin-top: 4px;
-        }
-
-        .stat-change {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            font-size: 10px;
-            padding: 2px 6px;
-            border-radius: 8px;
-            font-weight: 500;
-        }
-
-        .stat-change.positive {
-            background: #d1fae5;
-            color: #065f46;
-        }
-
-        .stat-change.negative {
-            background: #fecaca;
-            color: #991b1b;
         }
 
         .main-content {
@@ -184,7 +222,7 @@
             display: block;
         }
 
-        /* ✅ NOVO: DASHBOARD DE MONITORAMENTO */
+        /* DASHBOARD DE MONITORAMENTO */
         .monitoring-dashboard {
             padding: 24px;
         }
@@ -851,14 +889,37 @@
             font-size: 14px;
         }
 
+        /* ✅ LOADING STATE */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s;
+        }
+
+        .loading-overlay.show {
+            opacity: 1;
+            pointer-events: all;
+        }
+
         .loading-spinner {
             display: inline-block;
-            width: 12px;
-            height: 12px;
-            border: 2px solid #e5e7eb;
-            border-top: 2px solid #667eea;
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e5e7eb;
+            border-top: 4px solid #667eea;
             border-radius: 50%;
             animation: spin 1s linear infinite;
+            margin-right: 12px;
         }
 
         @keyframes spin {
@@ -866,243 +927,18 @@
             100% { transform: rotate(360deg); }
         }
 
+        .loading-text {
+            color: white;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
         @media (max-width: 768px) {
             .dashboard-grid {
                 grid-template-columns: 1fr;
             }
             
-            try {
-                showNotification('Salvando...', 'Atualizando funil no servidor', 'info');
-
-                const response = await fetch('/api/funnels', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(currentFunnelData)
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    showNotification('✅ Salvo!', 'Funil atualizado com sucesso', 'success');
-                    editingStepIndex = -1;
-                    renderSteps();
-                } else {
-                    throw new Error(result.error);
-                }
-            } catch (error) {
-                showNotification('❌ Erro', 'Erro ao salvar funil: ' + error.message, 'error');
-            }
-        }
-
-        // LISTA DE EVENTOS
-        async function loadEvents() {
-            try {
-                const response = await fetch('/api/conversations');
-                const result = await response.json();
-                
-                if (result.success) {
-                    renderEvents(result.data);
-                    
-                    // Atualizar badge de conversas
-                    const waitingCount = result.data.filter(conv => conv.waiting_for_response).length;
-                    const eventsBadge = document.getElementById('eventsBadge');
-                    
-                    if (waitingCount > 0) {
-                        eventsBadge.textContent = waitingCount;
-                        eventsBadge.style.display = 'block';
-                    } else {
-                        eventsBadge.style.display = 'none';
-                    }
-                }
-            } catch (error) {
-                console.error('Erro ao carregar eventos:', error);
-                document.getElementById('eventsTableBody').innerHTML = `
-                    <tr>
-                        <td colspan="9" style="text-align: center; padding: 40px; color: #dc2626;">
-                            Erro ao carregar eventos
-                        </td>
-                    </tr>
-                `;
-            }
-        }
-
-        function renderEvents(events) {
-            const tbody = document.getElementById('eventsTableBody');
-            
-            if (events.length === 0) {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="9" style="text-align: center; padding: 40px; color: #6b7280;">
-                            Nenhuma conversa ativa no momento
-                        </td>
-                    </tr>
-                `;
-                return;
-            }
-
-            let html = '';
-            events.forEach(event => {
-                const statusBadge = event.waiting_for_response ? 
-                    '<span class="badge badge-warning">Aguardando</span>' : 
-                    '<span class="badge badge-success">Pronto</span>';
-                
-                const productBadge = `<span class="badge badge-info">${event.productType}</span>`;
-                const createdAt = new Date(event.createdAt).toLocaleString('pt-BR');
-
-                // ✅ NOVO: Status da instância na conversa
-                let instanceHealthBadge = '<span class="badge">-</span>';
-                if (event.instanceHealth) {
-                    if (event.instanceHealth === 'ONLINE') {
-                        instanceHealthBadge = '<span class="badge badge-success">Online</span>';
-                    } else if (event.instanceHealth === 'OFFLINE') {
-                        instanceHealthBadge = '<span class="badge badge-danger">Offline</span>';
-                    } else if (event.instanceHealth === 'TESTING') {
-                        instanceHealthBadge = '<span class="badge badge-warning">Testando</span>';
-                    } else {
-                        instanceHealthBadge = '<span class="badge">Desconhecido</span>';
-                    }
-                }
-
-                html += `
-                    <tr ${event.instanceHealth === 'OFFLINE' ? 'style="background-color: #fef2f2;"' : ''}>
-                        <td>${event.customerName}</td>
-                        <td>${event.phone}</td>
-                        <td>${productBadge}</td>
-                        <td>${event.funnelId}</td>
-                        <td>${event.stepIndex + 1}</td>
-                        <td>${statusBadge}</td>
-                        <td>${event.stickyInstance || '-'}</td>
-                        <td>${instanceHealthBadge}</td>
-                        <td>${createdAt}</td>
-                    </tr>
-                `;
-            });
-
-            tbody.innerHTML = html;
-        }
-
-        // DASHBOARD
-        async function loadDashboard() {
-            try {
-                const response = await fetch('/api/dashboard');
-                const result = await response.json();
-                
-                if (result.success) {
-                    const stats = result.data;
-                    document.getElementById('statsConversations').textContent = stats.active_conversations || 0;
-                    document.getElementById('statsPix').textContent = stats.pending_pix || 0;
-                    
-                    // Detectar mudanças nas conversas
-                    if (previousStats.conversations !== stats.active_conversations) {
-                        previousStats.conversations = stats.active_conversations;
-                    }
-                }
-            } catch (error) {
-                console.error('Erro ao carregar dashboard:', error);
-            }
-        }
-
-        // CARREGAR FUNIS DO SERVIDOR
-        async function loadFunnelsFromServer() {
-            try {
-                const response = await fetch('/api/funnels');
-                const result = await response.json();
-                
-                if (result.success) {
-                    result.data.forEach(funnel => {
-                        if (funnelsData[funnel.id]) {
-                            funnelsData[funnel.id] = funnel;
-                        }
-                    });
-                    
-                    if (currentFunnelData) {
-                        loadFunnelEditor();
-                    }
-                }
-            } catch (error) {
-                console.error('Erro ao carregar funis:', error);
-            }
-        }
-
-        // ✅ MONITORAMENTO: Auto-refresh do dashboard
-        function startMonitoring() {
-            // Health check das instâncias a cada 15 segundos
-            healthCheckInterval = setInterval(() => {
-                if (document.getElementById('monitoring').classList.contains('active')) {
-                    loadInstanceHealth();
-                }
-            }, 15000);
-            
-            // Alertas a cada 10 segundos
-            alertsInterval = setInterval(() => {
-                if (document.getElementById('monitoring').classList.contains('active')) {
-                    loadAlerts();
-                }
-            }, 10000);
-            
-            // Dashboard geral a cada 30 segundos
-            setInterval(() => {
-                loadDashboard();
-                if (document.getElementById('events').classList.contains('active')) {
-                    loadEvents();
-                }
-            }, 30000);
-        }
-
-        function stopMonitoring() {
-            if (healthCheckInterval) {
-                clearInterval(healthCheckInterval);
-            }
-            if (alertsInterval) {
-                clearInterval(alertsInterval);
-            }
-        }
-
-        // INICIALIZAÇÃO
-        document.addEventListener('DOMContentLoaded', function() {
-            // Carregar dados iniciais
-            loadDashboard();
-            loadFunnelsFromServer();
-            loadFunnelEditor();
-            loadInstanceHealth();
-            loadAlerts();
-            
-            // Iniciar monitoramento automático
-            startMonitoring();
-            
-            // Parar monitoramento quando página é fechada
-            window.addEventListener('beforeunload', stopMonitoring);
-            
-            // Adicionar indicador de carregamento no dashboard
-            showNotification('🚀 Sistema Iniciado', 'Monitoramento em tempo real ativo', 'success');
-        });
-
-        // ✅ NOVO: Detectar problemas e mostrar notificações automáticas
-        let lastNotificationTime = 0;
-        
-        function checkSystemHealth() {
-            // Evitar spam de notificações
-            const now = Date.now();
-            if (now - lastNotificationTime < 60000) return; // Máximo 1 notificação por minuto
-            
-            // Esta função será chamada automaticamente para detectar problemas
-            const systemStatusEl = document.getElementById('systemStatus');
-            const currentStatus = systemStatusEl.className;
-            
-            if (currentStatus.includes('critical')) {
-                showNotification('🚨 Sistema Crítico', 'Muitas instâncias offline! Verifique o monitoramento.', 'error');
-                lastNotificationTime = now;
-            } else if (currentStatus.includes('degraded')) {
-                showNotification('⚠️ Sistema Degradado', 'Algumas instâncias estão offline.', 'warning');
-                lastNotificationTime = now;
-            }
-        }
-
-        // Verificar saúde do sistema a cada 30 segundos
-        setInterval(checkSystemHealth, 30000);
-    </script>
-</body>
-</html>.instances-grid {
+            .instances-grid {
                 grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
             }
             
@@ -1126,17 +962,43 @@
             .metrics-grid {
                 grid-template-columns: 1fr;
             }
+
+            .monitoring-controls {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
         }
     </style>
 </head>
 <body>
+    <!-- ✅ LOADING OVERLAY -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div>
+            <div class="loading-spinner"></div>
+            <div class="loading-text">Carregando sistema...</div>
+        </div>
+    </div>
+
     <div class="container">
         <div class="header">
-            <h1>
-                🚀 Kirvano - Sistema Avançado de Monitoramento
-                <span class="system-status healthy" id="systemStatus">Sistema Saudável</span>
-            </h1>
-            <p>Monitoramento em tempo real com health check automático e migração inteligente</p>
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;">
+                <div>
+                    <h1>
+                        🚀 Kirvano - Sistema Avançado de Monitoramento
+                        <span class="system-status healthy" id="systemStatus">Sistema Saudável</span>
+                    </h1>
+                    <p>Monitoramento em tempo real com health check automático e migração inteligente</p>
+                </div>
+                
+                <!-- ✅ CONTROLES DE MONITORAMENTO -->
+                <div class="monitoring-controls">
+                    <div class="monitoring-toggle active" id="monitoringToggle" onclick="toggleMonitoring()">
+                        <div class="toggle-switch active" id="toggleSwitch"></div>
+                        <span id="monitoringStatus">Monitoramento Ativo</span>
+                    </div>
+                </div>
+            </div>
             
             <div class="stats-grid">
                 <div class="stat-card healthy">
@@ -1146,7 +1008,6 @@
                 <div class="stat-card" id="healthyInstancesCard">
                     <div class="stat-value" id="statsHealthyInstances">-</div>
                     <div class="stat-label">Instâncias Online</div>
-                    <div class="stat-change positive" id="instancesChange">+0</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-value" id="statsPix">-</div>
@@ -1159,7 +1020,6 @@
                 <div class="stat-card" id="alertsCard">
                     <div class="stat-value" id="statsAlerts">-</div>
                     <div class="stat-label">Alertas Ativos</div>
-                    <div class="stat-change negative" id="alertsChange">+0</div>
                 </div>
             </div>
         </div>
@@ -1177,7 +1037,7 @@
                 </button>
             </div>
 
-            <!-- ✅ NOVO: DASHBOARD DE MONITORAMENTO -->
+            <!-- DASHBOARD DE MONITORAMENTO -->
             <div id="monitoring" class="tab-content active">
                 <div class="monitoring-dashboard">
                     <div class="dashboard-grid">
@@ -1195,7 +1055,9 @@
                                 </div>
                             </h3>
                             <div class="instances-grid" id="instancesGrid">
-                                <!-- Instâncias serão carregadas aqui -->
+                                <div style="grid-column: 1/-1; text-align: center; color: #6b7280; padding: 20px;">
+                                    Carregando status das instâncias...
+                                </div>
                             </div>
                         </div>
 
@@ -1207,8 +1069,7 @@
                             </h3>
                             <div id="alertsList">
                                 <div style="text-align: center; color: #6b7280; padding: 20px;">
-                                    <div class="loading-spinner"></div>
-                                    <div style="margin-top: 8px;">Carregando alertas...</div>
+                                    Carregando alertas...
                                 </div>
                             </div>
                         </div>
@@ -1239,7 +1100,9 @@
                         <div class="metrics-card">
                             <h4>🔄 Distribuição de Conversas</h4>
                             <div id="conversationDistribution">
-                                <!-- Será preenchido dinamicamente -->
+                                <div style="color: #6b7280; text-align: center; padding: 20px;">
+                                    Carregando distribuição...
+                                </div>
                             </div>
                         </div>
 
@@ -1412,10 +1275,17 @@
     </div>
 
     <script>
+        // ✅ VARIÁVEIS GLOBAIS - CONTROLE DE ESTADO
         let currentFunnelData = null;
         let editingStepIndex = -1;
+        let isMonitoringActive = true;
+        let isSystemLoading = true;
+        let requestInProgress = false;
+
+        // ✅ INTERVALS CONTROLADOS
         let healthCheckInterval = null;
         let alertsInterval = null;
+        let dashboardInterval = null;
 
         // Dados dos funis
         let funnelsData = {
@@ -1448,6 +1318,19 @@
             conversations: 0
         };
 
+        // ✅ SISTEMA DE LOADING
+        function showLoading(message = 'Processando...') {
+            const overlay = document.getElementById('loadingOverlay');
+            const text = overlay.querySelector('.loading-text');
+            text.textContent = message;
+            overlay.classList.add('show');
+        }
+
+        function hideLoading() {
+            const overlay = document.getElementById('loadingOverlay');
+            overlay.classList.remove('show');
+        }
+
         // ✅ SISTEMA DE NOTIFICAÇÕES
         function showNotification(title, message, type = 'info') {
             const existingNotifications = document.querySelectorAll('.notification');
@@ -1476,9 +1359,40 @@
             }, 4000);
         }
 
-        // ✅ MONITORAMENTO: Carregar status das instâncias
+        // ✅ TOGGLE DE MONITORAMENTO PRINCIPAL
+        function toggleMonitoring() {
+            isMonitoringActive = !isMonitoringActive;
+            
+            const toggle = document.getElementById('monitoringToggle');
+            const toggleSwitch = document.getElementById('toggleSwitch');
+            const status = document.getElementById('monitoringStatus');
+            
+            if (isMonitoringActive) {
+                toggle.classList.add('active');
+                toggle.classList.remove('paused');
+                toggleSwitch.classList.add('active');
+                status.textContent = 'Monitoramento Ativo';
+                
+                startMonitoring();
+                showNotification('✅ Monitoramento Ativo', 'Sistema de monitoramento reiniciado', 'success');
+                
+            } else {
+                toggle.classList.remove('active');
+                toggle.classList.add('paused');
+                toggleSwitch.classList.remove('active');
+                status.textContent = 'Monitoramento Pausado';
+                
+                stopMonitoring();
+                showNotification('⏸️ Monitoramento Pausado', 'Sistema pausado para economizar recursos', 'info');
+            }
+        }
+
+        // ✅ MONITORAMENTO COM DEBOUNCE
         async function loadInstanceHealth() {
+            if (!isMonitoringActive || requestInProgress) return;
+            
             try {
+                requestInProgress = true;
                 const response = await fetch('/api/health');
                 const result = await response.json();
                 
@@ -1488,11 +1402,14 @@
                 }
             } catch (error) {
                 console.error('Erro ao carregar health das instâncias:', error);
+            } finally {
+                requestInProgress = false;
             }
         }
 
-        // ✅ MONITORAMENTO: Renderizar status das instâncias
         function renderInstancesHealth(healthData) {
+            if (!isMonitoringActive) return;
+            
             const grid = document.getElementById('instancesGrid');
             const instances = healthData.instances;
             
@@ -1524,8 +1441,9 @@
             grid.innerHTML = html;
         }
 
-        // ✅ MONITORAMENTO: Atualizar status geral do sistema
         function updateSystemStatus(healthData) {
+            if (!isMonitoringActive) return;
+            
             const system = healthData.system;
             const onlineInstances = system.onlineInstances;
             const totalInstances = system.totalInstances;
@@ -1544,10 +1462,9 @@
                 statusEl.className = 'system-status critical';
             }
             
-            // Atualizar cards de estatísticas
+            // Atualizar cards
             document.getElementById('statsHealthyInstances').textContent = onlineInstances + '/' + totalInstances;
             
-            // Cards coloridos baseados no status
             const healthyCard = document.getElementById('healthyInstancesCard');
             if (offlineInstances === 0) {
                 healthyCard.className = 'stat-card healthy';
@@ -1555,16 +1472,13 @@
                 healthyCard.className = 'stat-card warning';
             }
             
-            // Health check status
             document.getElementById('healthCheckStatus').textContent = system.healthCheckActive ? 'Ativo' : 'Inativo';
             
-            // Último health check
             if (system.lastHealthCheck > 0) {
                 const lastCheck = new Date(system.lastHealthCheck);
                 document.getElementById('lastHealthCheck').textContent = lastCheck.toLocaleTimeString('pt-BR');
             }
             
-            // Controles de health check
             const startBtn = document.getElementById('startHealthBtn');
             const stopBtn = document.getElementById('stopHealthBtn');
             
@@ -1576,30 +1490,14 @@
                 stopBtn.style.display = 'none';
             }
 
-            // Distribuição de conversas
             renderConversationDistribution(healthData.instances);
             
-            // Detectar mudanças
             const currentHealthy = onlineInstances;
             if (previousStats.healthyInstances !== currentHealthy) {
-                const change = currentHealthy - previousStats.healthyInstances;
-                const changeEl = document.getElementById('instancesChange');
-                
-                if (change > 0) {
-                    changeEl.textContent = `+${change}`;
-                    changeEl.className = 'stat-change positive';
-                } else if (change < 0) {
-                    changeEl.textContent = `${change}`;
-                    changeEl.className = 'stat-change negative';
-                } else {
-                    changeEl.textContent = '+0';
-                }
-                
                 previousStats.healthyInstances = currentHealthy;
             }
         }
 
-        // ✅ MONITORAMENTO: Renderizar distribuição de conversas
         function renderConversationDistribution(instances) {
             const container = document.getElementById('conversationDistribution');
             let html = '';
@@ -1632,8 +1530,10 @@
             container.innerHTML = html;
         }
 
-        // ✅ MONITORAMENTO: Carregar alertas
+        // ✅ ALERTAS COM CONTROLE
         async function loadAlerts() {
+            if (!isMonitoringActive) return;
+            
             try {
                 const response = await fetch('/api/alerts?limit=10');
                 const result = await response.json();
@@ -1641,7 +1541,6 @@
                 if (result.success) {
                     renderAlerts(result.data, result.unacknowledged);
                     
-                    // Atualizar badge de alertas
                     const unacknowledged = result.unacknowledged;
                     document.getElementById('statsAlerts').textContent = unacknowledged;
                     
@@ -1667,7 +1566,6 @@
             }
         }
 
-        // ✅ MONITORAMENTO: Renderizar alertas
         function renderAlerts(alerts, unacknowledgedCount) {
             const container = document.getElementById('alertsList');
             
@@ -1705,7 +1603,6 @@
             container.innerHTML = html;
         }
 
-        // ✅ MONITORAMENTO: Reconhecer alerta
         async function acknowledgeAlert(alertId) {
             try {
                 const response = await fetch(`/api/alerts/${alertId}/acknowledge`, {
@@ -1716,7 +1613,7 @@
                 
                 if (result.success) {
                     showNotification('✅ Reconhecido', 'Alerta foi reconhecido', 'success');
-                    loadAlerts(); // Recarregar alertas
+                    loadAlerts();
                 } else {
                     throw new Error(result.error);
                 }
@@ -1725,7 +1622,6 @@
             }
         }
 
-        // ✅ MONITORAMENTO: Controlar health check
         async function toggleHealthCheck(action) {
             try {
                 const response = await fetch('/api/health/toggle', {
@@ -1738,7 +1634,7 @@
                 
                 if (result.success) {
                     showNotification('✅ Health Check', result.message, 'success');
-                    loadInstanceHealth(); // Recarregar status
+                    loadInstanceHealth();
                 } else {
                     throw new Error(result.error);
                 }
@@ -1755,18 +1651,19 @@
             event.target.classList.add('active');
             document.getElementById(tabName).classList.add('active');
             
+            // Só carregar dados quando necessário
             if (tabName === 'events') {
                 loadEvents();
-            } else if (tabName === 'monitoring') {
+            } else if (tabName === 'monitoring' && isMonitoringActive) {
                 loadInstanceHealth();
                 loadAlerts();
             }
         }
 
-        // ✅ EXPORT/IMPORT - Funções de funis
+        // ✅ EXPORT/IMPORT SIMPLIFICADOS
         async function exportFunnels() {
             try {
-                showNotification('Exportando...', 'Preparando arquivo de backup dos funis', 'info');
+                showLoading('Exportando funis...');
 
                 const response = await fetch('/api/funnels/export');
                 
@@ -1787,11 +1684,13 @@
                 
                 window.URL.revokeObjectURL(url);
 
-                showNotification('✅ Exportado!', 'Funis salvos com sucesso. Guarde o arquivo em local seguro.', 'success');
+                showNotification('✅ Exportado!', 'Funis salvos com sucesso.', 'success');
 
             } catch (error) {
                 console.error('Erro ao exportar funis:', error);
                 showNotification('❌ Erro', 'Falha ao exportar funis: ' + error.message, 'error');
+            } finally {
+                hideLoading();
             }
         }
 
@@ -1805,7 +1704,7 @@
             }
 
             try {
-                showNotification('Importando...', 'Processando arquivo de backup', 'info');
+                showLoading('Importando funis...');
 
                 const text = await file.text();
                 const importData = JSON.parse(text);
@@ -1821,14 +1720,10 @@
                 if (result.success) {
                     let message = `${result.imported} funis importados`;
                     if (result.skipped > 0) {
-                        message += `, ${result.skipped} ignorados (já existiam)`;
-                    }
-                    if (result.errors.length > 0) {
-                        message += `, ${result.errors.length} erros`;
+                        message += `, ${result.skipped} ignorados`;
                     }
 
                     showNotification('✅ Importado!', message, 'success');
-
                     await loadFunnelsFromServer();
                     loadFunnelEditor();
 
@@ -1839,12 +1734,13 @@
             } catch (error) {
                 console.error('Erro ao importar funis:', error);
                 showNotification('❌ Erro', 'Falha ao importar: ' + error.message, 'error');
+            } finally {
+                hideLoading();
+                fileInput.value = '';
             }
-
-            fileInput.value = '';
         }
 
-        // EDITOR DE FUNIS (código original mantido)
+        // ✅ FUNÇÕES DO EDITOR DE FUNIS (simplificadas)
         function loadFunnelEditor() {
             const funnelId = document.getElementById('funnelSelect').value;
             currentFunnelData = funnelsData[funnelId];
@@ -2114,12 +2010,12 @@
 
         async function saveFunnel() {
             if (!currentFunnelData) {
-                alert('Selecione um funil para salvar');
+                showNotification('⚠️ Atenção', 'Selecione um funil para salvar', 'error');
                 return;
             }
             
             if (currentFunnelData.steps.length === 0) {
-                alert('Adicione pelo menos um passo ao funil');
+                showNotification('⚠️ Atenção', 'Adicione pelo menos um passo ao funil', 'error');
                 return;
             }
             
@@ -2128,25 +2024,265 @@
                 
                 if (step.type === 'text') {
                     if (!step.text || step.text.trim() === '') {
-                        alert(`Passo ${i + 1}: Texto é obrigatório para mensagens de texto`);
+                        showNotification('❌ Erro', `Passo ${i + 1}: Texto é obrigatório para mensagens de texto`, 'error');
                         return;
                     }
                 } else if (step.type === 'delay') {
                     if (!step.delaySeconds || step.delaySeconds <= 0) {
-                        alert(`Passo ${i + 1}: Tempo de delay é obrigatório`);
+                        showNotification('❌ Erro', `Passo ${i + 1}: Tempo de delay é obrigatório`, 'error');
                         return;
                     }
                 } else if (step.type === 'typing') {
                     if (!step.typingSeconds || step.typingSeconds <= 0) {
-                        alert(`Passo ${i + 1}: Tempo de digitação é obrigatório`);
+                        showNotification('❌ Erro', `Passo ${i + 1}: Tempo de digitação é obrigatório`, 'error');
                         return;
                     }
                 } else if (step.type === 'image' || step.type === 'video' || step.type === 'audio' || step.type === 'image+text' || step.type === 'video+text') {
                     if (!step.mediaUrl || step.mediaUrl.trim() === '') {
                         const mediaType = step.type === 'audio' ? 'áudio' : 
                                          step.type.includes('video') ? 'vídeo' : 'imagem';
-                        alert(`Passo ${i + 1}: URL do ${mediaType} é obrigatória`);
+                        showNotification('❌ Erro', `Passo ${i + 1}: URL do ${mediaType} é obrigatória`, 'error');
                         return;
                     }
                 }
             }
+            
+            try {
+                showLoading('Salvando funil...');
+
+                const response = await fetch('/api/funnels', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentFunnelData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showNotification('✅ Salvo!', 'Funil atualizado com sucesso', 'success');
+                    editingStepIndex = -1;
+                    renderSteps();
+                } else {
+                    throw new Error(result.error);
+                }
+            } catch (error) {
+                showNotification('❌ Erro', 'Erro ao salvar funil: ' + error.message, 'error');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // LISTA DE EVENTOS
+        async function loadEvents() {
+            try {
+                const response = await fetch('/api/conversations');
+                const result = await response.json();
+                
+                if (result.success) {
+                    renderEvents(result.data);
+                    
+                    const waitingCount = result.data.filter(conv => conv.waiting_for_response).length;
+                    const eventsBadge = document.getElementById('eventsBadge');
+                    
+                    if (waitingCount > 0) {
+                        eventsBadge.textContent = waitingCount;
+                        eventsBadge.style.display = 'block';
+                    } else {
+                        eventsBadge.style.display = 'none';
+                    }
+                }
+            } catch (error) {
+                console.error('Erro ao carregar eventos:', error);
+                document.getElementById('eventsTableBody').innerHTML = `
+                    <tr>
+                        <td colspan="9" style="text-align: center; padding: 40px; color: #dc2626;">
+                            Erro ao carregar eventos
+                        </td>
+                    </tr>
+                `;
+            }
+        }
+
+        function renderEvents(events) {
+            const tbody = document.getElementById('eventsTableBody');
+            
+            if (events.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="9" style="text-align: center; padding: 40px; color: #6b7280;">
+                            Nenhuma conversa ativa no momento
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            let html = '';
+            events.forEach(event => {
+                const statusBadge = event.waiting_for_response ? 
+                    '<span class="badge badge-warning">Aguardando</span>' : 
+                    '<span class="badge badge-success">Pronto</span>';
+                
+                const productBadge = `<span class="badge badge-info">${event.productType}</span>`;
+                const createdAt = new Date(event.createdAt).toLocaleString('pt-BR');
+
+                let instanceHealthBadge = '<span class="badge">-</span>';
+                if (event.instanceHealth) {
+                    if (event.instanceHealth === 'ONLINE') {
+                        instanceHealthBadge = '<span class="badge badge-success">Online</span>';
+                    } else if (event.instanceHealth === 'OFFLINE') {
+                        instanceHealthBadge = '<span class="badge badge-danger">Offline</span>';
+                    } else if (event.instanceHealth === 'TESTING') {
+                        instanceHealthBadge = '<span class="badge badge-warning">Testando</span>';
+                    } else {
+                        instanceHealthBadge = '<span class="badge">Desconhecido</span>';
+                    }
+                }
+
+                html += `
+                    <tr ${event.instanceHealth === 'OFFLINE' ? 'style="background-color: #fef2f2;"' : ''}>
+                        <td>${event.customerName}</td>
+                        <td>${event.phone}</td>
+                        <td>${productBadge}</td>
+                        <td>${event.funnelId}</td>
+                        <td>${event.stepIndex + 1}</td>
+                        <td>${statusBadge}</td>
+                        <td>${event.stickyInstance || '-'}</td>
+                        <td>${instanceHealthBadge}</td>
+                        <td>${createdAt}</td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        // DASHBOARD
+        async function loadDashboard() {
+            try {
+                const response = await fetch('/api/dashboard');
+                const result = await response.json();
+                
+                if (result.success) {
+                    const stats = result.data;
+                    document.getElementById('statsConversations').textContent = stats.active_conversations || 0;
+                    document.getElementById('statsPix').textContent = stats.pending_pix || 0;
+                    
+                    if (previousStats.conversations !== stats.active_conversations) {
+                        previousStats.conversations = stats.active_conversations;
+                    }
+                }
+            } catch (error) {
+                console.error('Erro ao carregar dashboard:', error);
+            }
+        }
+
+        // CARREGAR FUNIS DO SERVIDOR
+        async function loadFunnelsFromServer() {
+            try {
+                const response = await fetch('/api/funnels');
+                const result = await response.json();
+                
+                if (result.success) {
+                    result.data.forEach(funnel => {
+                        if (funnelsData[funnel.id]) {
+                            funnelsData[funnel.id] = funnel;
+                        }
+                    });
+                    
+                    if (currentFunnelData) {
+                        loadFunnelEditor();
+                    }
+                }
+            } catch (error) {
+                console.error('Erro ao carregar funis:', error);
+            }
+        }
+
+        // ✅ SISTEMA DE MONITORAMENTO CONTROLADO
+        function startMonitoring() {
+            if (!isMonitoringActive) return;
+            
+            // Health check das instâncias a cada 60 segundos (reduzido de 15s)
+            healthCheckInterval = setInterval(() => {
+                if (document.getElementById('monitoring').classList.contains('active') && isMonitoringActive) {
+                    loadInstanceHealth();
+                }
+            }, 60000);
+            
+            // Alertas a cada 45 segundos (reduzido de 10s)
+            alertsInterval = setInterval(() => {
+                if (document.getElementById('monitoring').classList.contains('active') && isMonitoringActive) {
+                    loadAlerts();
+                }
+            }, 45000);
+            
+            // Dashboard geral a cada 30 segundos
+            dashboardInterval = setInterval(() => {
+                if (isMonitoringActive) {
+                    loadDashboard();
+                    if (document.getElementById('events').classList.contains('active')) {
+                        loadEvents();
+                    }
+                }
+            }, 30000);
+            
+            console.log('✅ Monitoramento iniciado com intervalos otimizados');
+        }
+
+        function stopMonitoring() {
+            if (healthCheckInterval) {
+                clearInterval(healthCheckInterval);
+                healthCheckInterval = null;
+            }
+            if (alertsInterval) {
+                clearInterval(alertsInterval);
+                alertsInterval = null;
+            }
+            if (dashboardInterval) {
+                clearInterval(dashboardInterval);
+                dashboardInterval = null;
+            }
+            console.log('⏸️ Monitoramento pausado');
+        }
+
+        // ✅ INICIALIZAÇÃO OTIMIZADA
+        document.addEventListener('DOMContentLoaded', async function() {
+            console.log('🚀 Iniciando sistema Kirvano...');
+            showLoading('Inicializando sistema...');
+            
+            try {
+                // Carregar dados essenciais primeiro
+                await Promise.all([
+                    loadDashboard(),
+                    loadFunnelsFromServer()
+                ]);
+                
+                loadFunnelEditor();
+                
+                // Carregar monitoramento se ativo
+                if (isMonitoringActive) {
+                    await Promise.all([
+                        loadInstanceHealth(),
+                        loadAlerts()
+                    ]);
+                    
+                    startMonitoring();
+                }
+                
+                showNotification('🚀 Sistema Iniciado', 'Todas as funcionalidades estão ativas', 'success');
+                
+            } catch (error) {
+                console.error('Erro na inicialização:', error);
+                showNotification('❌ Erro na Inicialização', error.message, 'error');
+            } finally {
+                hideLoading();
+                isSystemLoading = false;
+            }
+            
+            // Parar monitoramento quando página é fechada
+            window.addEventListener('beforeunload', stopMonitoring);
+        });
+    </script>
+</body>
+</html>
