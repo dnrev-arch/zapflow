@@ -18,13 +18,10 @@ const PRODUCT_MAPPING = {
     'e79419d3-5b71-4f90-954b-b05e94de8d98': 'CS',
     '06539c76-40ee-4811-8351-ab3f5ccc4437': 'CS',
     '564bb9bb-718a-4e8b-a843-a2da62f616f0': 'CS',
-    '668a73bc-2fca-4f12-9331-ef945181cd5c': 'FAB',
-    // Mapeamento para testes
-    '5c1f6390-8999-4740-b16f-51380e1097e4': 'CS',
-    '5288799c-d8e3-48ce-a91d-587814acdee5': 'FAB'
+    '668a73bc-2fca-4f12-9331-ef945181cd5c': 'FAB'
 };
 
-// Instâncias Evolution
+// Instâncias Evolution (fallback sequencial)
 const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'D11'];
 
 // ============ ARMAZENAMENTO EM MEMÓRIA ============
@@ -34,33 +31,123 @@ let stickyInstances = new Map();
 let pixTimeouts = new Map();
 let logs = [];
 let funis = new Map();
-let instanceRoundRobin = 0;
+let instanceRoundRobin = 0; // ✅ Contador para distribuição circular de primeira mensagem
 
-// FUNIS PADRÃO
+// ✅ FUNIS PADRÃO CORRIGIDOS - waitForReply false nos passos que devem continuar automaticamente
 const defaultFunnels = {
     'CS_APROVADA': {
         id: 'CS_APROVADA',
         name: 'CS - Compra Aprovada',
-        steps: []
+        steps: [
+            {
+                id: 'step_1',
+                type: 'text',
+                text: 'Parabéns! Seu pedido foi aprovado. Bem-vindo ao CS!',
+                waitForReply: true,
+                timeoutMinutes: 60,
+                nextOnReply: 1,
+                nextOnTimeout: 2
+            },
+            {
+                id: 'step_2',
+                type: 'text',
+                text: 'Obrigado pela resposta! Aqui estão seus próximos passos...',
+                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+            },
+            {
+                id: 'step_3',
+                type: 'text',
+                text: 'Lembre-se de acessar nossa plataforma. Qualquer dúvida, estamos aqui!',
+                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+            }
+        ]
     },
     'CS_PIX': {
         id: 'CS_PIX',
         name: 'CS - PIX Pendente',
-        steps: []
+        steps: [
+            {
+                id: 'step_1',
+                type: 'text',
+                text: 'Seu PIX foi gerado! Aguardamos o pagamento para liberar o acesso ao CS.',
+                waitForReply: true,
+                timeoutMinutes: 10,
+                nextOnReply: 1,
+                nextOnTimeout: 2
+            },
+            {
+                id: 'step_2',
+                type: 'text',
+                text: 'Obrigado pelo contato! Assim que o pagamento for confirmado, você receberá o acesso.',
+                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+            },
+            {
+                id: 'step_3',
+                type: 'text',
+                text: 'PIX vencido! Entre em contato conosco para gerar um novo.',
+                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+            }
+        ]
     },
     'FAB_APROVADA': {
         id: 'FAB_APROVADA',
         name: 'FAB - Compra Aprovada',
-        steps: []
+        steps: [
+            {
+                id: 'step_1',
+                type: 'text',
+                text: 'Parabéns! Seu pedido FAB foi aprovado. Prepare-se para a transformação!',
+                waitForReply: true,
+                timeoutMinutes: 60,
+                nextOnReply: 1,
+                nextOnTimeout: 2
+            },
+            {
+                id: 'step_2',
+                type: 'text',
+                text: 'Que bom que respondeu! Sua jornada FAB começa agora...',
+                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+            },
+            {
+                id: 'step_3',
+                type: 'text',
+                text: 'Acesse nossa área de membros e comece sua transformação hoje mesmo!',
+                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+            }
+        ]
     },
     'FAB_PIX': {
         id: 'FAB_PIX',
         name: 'FAB - PIX Pendente',
-        steps: []
+        steps: [
+            {
+                id: 'step_1',
+                type: 'text',
+                text: 'Seu PIX FAB foi gerado! Aguardamos o pagamento para iniciar sua transformação.',
+                waitForReply: true,
+                timeoutMinutes: 10,
+                nextOnReply: 1,
+                nextOnTimeout: 2
+            },
+            {
+                id: 'step_2',
+                type: 'text',
+                text: 'Obrigado pelo contato! Logo após o pagamento, você terá acesso completo ao FAB.',
+                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+            },
+            {
+                id: 'step_3',
+                type: 'text',
+                text: 'PIX vencido! Entre em contato para gerar um novo e não perder essa oportunidade.',
+                waitForReply: false  // ✅ CORREÇÃO: false para continuar automaticamente
+            }
+        ]
     }
 };
 
 // ============ PERSISTÊNCIA DE DADOS ============
+
+// Garantir que a pasta data existe
 async function ensureDataDir() {
     try {
         await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
@@ -69,6 +156,7 @@ async function ensureDataDir() {
     }
 }
 
+// Salvar funis no arquivo
 async function saveFunnelsToFile() {
     try {
         await ensureDataDir();
@@ -80,14 +168,19 @@ async function saveFunnelsToFile() {
     }
 }
 
+// Carregar funis do arquivo
 async function loadFunnelsFromFile() {
     try {
         const data = await fs.readFile(DATA_FILE, 'utf8');
         const funnelsArray = JSON.parse(data);
+        
+        // Limpar funis atuais e recarregar
         funis.clear();
+        
         funnelsArray.forEach(funnel => {
             funis.set(funnel.id, funnel);
         });
+        
         addLog('DATA_LOAD', 'Funis carregados do arquivo: ' + funnelsArray.length + ' funis');
         return true;
     } catch (error) {
@@ -96,6 +189,7 @@ async function loadFunnelsFromFile() {
     }
 }
 
+// Salvar conversas ativas (para não perder o que está em andamento)
 async function saveConversationsToFile() {
     try {
         await ensureDataDir();
@@ -118,11 +212,13 @@ async function saveConversationsToFile() {
     }
 }
 
+// Carregar conversas ativas
 async function loadConversationsFromFile() {
     try {
         const data = await fs.readFile(CONVERSATIONS_FILE, 'utf8');
         const parsed = JSON.parse(data);
         
+        // Recarregar conversas
         conversations.clear();
         parsed.conversations.forEach(conv => {
             const conversation = {
@@ -134,6 +230,7 @@ async function loadConversationsFromFile() {
             conversations.set(conv.remoteJid, conversation);
         });
         
+        // Recarregar sticky instances
         stickyInstances.clear();
         parsed.stickyInstances.forEach(([key, value]) => {
             stickyInstances.set(key, value);
@@ -147,7 +244,7 @@ async function loadConversationsFromFile() {
     }
 }
 
-// Auto-save periódico
+// Auto-save periódico (a cada 30 segundos)
 setInterval(async () => {
     await saveFunnelsToFile();
     await saveConversationsToFile();
@@ -160,39 +257,48 @@ Object.values(defaultFunnels).forEach(funnel => {
 
 // ============ MIDDLEWARES ============
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static('public')); // Serve arquivos estáticos da pasta public
 
 // ============ FUNÇÕES AUXILIARES ============
 function normalizePhone(phone) {
     if (!phone) return '';
     
+    // Remove todos os caracteres não numéricos
     let cleaned = phone.replace(/\D/g, '');
     
+    // Se começar com +55, remove o +
     if (cleaned.startsWith('55')) {
         cleaned = cleaned.substring(2);
     }
     
+    // ✅ NORMALIZAÇÃO ROBUSTA PARA NÚMEROS BRASILEIROS
+    
+    // Se tem 10 dígitos (DDD + 8 dígitos), adicionar 9
     if (cleaned.length === 10) {
         const ddd = cleaned.substring(0, 2);
         const numero = cleaned.substring(2);
-        cleaned = ddd + '9' + numero;
+        cleaned = ddd + '9' + numero; // Adiciona o 9
     }
     
+    // Se tem 11 dígitos mas não tem 9 após o DDD, adicionar
     if (cleaned.length === 11) {
         const ddd = cleaned.substring(0, 2);
         const primeiroDigito = cleaned.substring(2, 3);
         
+        // Se o primeiro dígito após DDD não é 9, adicionar 9
         if (primeiroDigito !== '9') {
             const numero = cleaned.substring(2);
             cleaned = ddd + '9' + numero;
         }
     }
     
+    // Garantir que tem exatamente 11 dígitos no final
     if (cleaned.length === 11) {
-        cleaned = '55' + cleaned;
+        cleaned = '55' + cleaned; // Adicionar código do país
     } else if (cleaned.length === 13 && cleaned.startsWith('55')) {
-        // Já está correto
+        // Já tem 55 + 11 dígitos, está correto
     } else {
+        // Formato não reconhecido, tentar com código do país
         if (!cleaned.startsWith('55')) {
             cleaned = '55' + cleaned;
         }
@@ -212,29 +318,34 @@ function phoneToRemoteJid(phone) {
     return normalized + '@s.whatsapp.net';
 }
 
+// ✅ NOVA FUNÇÃO: Criar múltiplas variações do número para busca
 function findConversationByPhone(phone) {
     const normalized = normalizePhone(phone);
     const remoteJid = normalized + '@s.whatsapp.net';
     
+    // Tentar encontrar conversa com número exato
     if (conversations.has(remoteJid)) {
         addLog('CONVERSATION_FOUND_EXACT', 'Conversa encontrada com número exato', { remoteJid });
         return conversations.get(remoteJid);
     }
     
-    const phoneOnly = normalized.replace('55', '');
+    // ✅ BUSCA FLEXÍVEL: Criar variações do número
+    const phoneOnly = normalized.replace('55', ''); // Remove código do país
     const variations = [
-        normalized + '@s.whatsapp.net',
-        '55' + phoneOnly + '@s.whatsapp.net',
-        phoneOnly + '@s.whatsapp.net',
+        normalized + '@s.whatsapp.net',                    // 5575981734444@s.whatsapp.net
+        '55' + phoneOnly + '@s.whatsapp.net',             // Com código país
+        phoneOnly + '@s.whatsapp.net',                    // Sem código país: 75981734444@s.whatsapp.net
     ];
     
+    // Se tem 11 dígitos, criar variação sem 9
     if (phoneOnly.length === 11 && phoneOnly.charAt(2) === '9') {
         const ddd = phoneOnly.substring(0, 2);
         const numeroSem9 = phoneOnly.substring(3);
-        variations.push(ddd + numeroSem9 + '@s.whatsapp.net');
-        variations.push('55' + ddd + numeroSem9 + '@s.whatsapp.net');
+        variations.push(ddd + numeroSem9 + '@s.whatsapp.net');           // 7581734444@s.whatsapp.net
+        variations.push('55' + ddd + numeroSem9 + '@s.whatsapp.net');   // 557581734444@s.whatsapp.net
     }
     
+    // Buscar em todas as variações
     for (const variation of variations) {
         if (conversations.has(variation)) {
             addLog('CONVERSATION_FOUND_VARIATION', 'Conversa encontrada com variação', { 
@@ -243,10 +354,12 @@ function findConversationByPhone(phone) {
                 variations: variations
             });
             
+            // ✅ IMPORTANTE: Atualizar a chave da conversa para o formato normalizado
             const conversation = conversations.get(variation);
-            conversations.delete(variation);
-            conversations.set(remoteJid, conversation);
+            conversations.delete(variation); // Remove entrada antiga
+            conversations.set(remoteJid, conversation); // Adiciona com chave normalizada
             
+            // Atualizar sticky instance também
             if (stickyInstances.has(variation)) {
                 const instance = stickyInstances.get(variation);
                 stickyInstances.delete(variation);
@@ -329,7 +442,7 @@ async function sendToEvolution(instanceName, endpoint, payload) {
     }
 }
 
-// Funções de envio corrigidas
+// ✅ CORREÇÃO: Funções de envio com formato correto para Evolution API
 async function sendText(remoteJid, text, clientMessageId, instanceName) {
     const payload = {
         number: remoteJid.replace('@s.whatsapp.net', ''),
@@ -358,29 +471,27 @@ async function sendVideo(remoteJid, videoUrl, caption, clientMessageId, instance
     return await sendToEvolution(instanceName, '/message/sendMedia', payload);
 }
 
-// CORREÇÃO: Áudio enviado como gravação normal
 async function sendAudio(remoteJid, audioUrl, clientMessageId, instanceName) {
     const payload = {
         number: remoteJid.replace('@s.whatsapp.net', ''),
         mediatype: 'audio',
-        media: audioUrl,
-        mimetype: 'audio/mpeg', // Força MP3
-        ptt: true // Importante: marca como áudio de voz
+        media: audioUrl
     };
     return await sendToEvolution(instanceName, '/message/sendMedia', payload);
 }
 
-// ============ ENVIO COM FALLBACK E INSTÂNCIA FIXA ============
+// ============ ENVIO COM FALLBACK E ROUND-ROBIN ============
 async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage = false) {
     const clientMessageId = uuidv4();
     let instancesToTry = [...INSTANCES];
     
-    // Se é primeira mensagem, distribuir round-robin
+    // ✅ NOVA LÓGICA: Round-robin para primeira mensagem
     if (isFirstMessage) {
         const primaryInstanceIndex = instanceRoundRobin % INSTANCES.length;
         const primaryInstance = INSTANCES[primaryInstanceIndex];
         instanceRoundRobin++;
         
+        // Organizar instâncias em ordem de prioridade para fallback
         instancesToTry = [
             primaryInstance,
             ...INSTANCES.slice(primaryInstanceIndex + 1),
@@ -393,7 +504,7 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
             fallbackOrder: instancesToTry 
         });
     } else {
-        // Usar instância fixa
+        // ✅ Manter lógica existente para mensagens subsequentes
         const stickyInstance = stickyInstances.get(remoteJid);
         if (stickyInstance) {
             instancesToTry = [stickyInstance, ...INSTANCES.filter(i => i !== stickyInstance)];
@@ -412,6 +523,7 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
             
             let result;
             
+            // ✅ CORREÇÃO: Tipos corrigidos para suportar vídeo e áudio
             if (type === 'text') {
                 result = await sendText(remoteJid, text, clientMessageId, instanceName);
             } else if (type === 'image') {
@@ -427,7 +539,7 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
             }
             
             if (result && result.ok) {
-                // Fixar instância
+                // ✅ Atualizar sticky instance apenas para primeira mensagem ou sucesso
                 stickyInstances.set(remoteJid, instanceName);
                 
                 addLog('SEND_SUCCESS', 'Mensagem enviada com sucesso via ' + instanceName, { 
@@ -452,53 +564,7 @@ async function sendWithFallback(remoteJid, type, text, mediaUrl, isFirstMessage 
     return { success: false, error: lastError };
 }
 
-// ============ ORQUESTRAÇÃO DE FUNIS CORRIGIDA ============
-
-// NOVA FUNÇÃO: Trocar funil mantendo instância
-async function changeFunnel(remoteJid, newFunnelId, orderCode, customerName, productType, amount) {
-    const existingConversation = findConversationByPhone(remoteJid.replace('@s.whatsapp.net', ''));
-    
-    if (existingConversation) {
-        // MANTER a instância fixa!
-        const existingInstance = stickyInstances.get(existingConversation.remoteJid);
-        
-        addLog('FUNNEL_CHANGE', `Trocando funil: ${existingConversation.funnelId} → ${newFunnelId}`, {
-            remoteJid,
-            oldFunnel: existingConversation.funnelId,
-            newFunnel: newFunnelId,
-            keepInstance: existingInstance
-        });
-        
-        // Cancelar timers antigos se existirem
-        const pixTimeout = pixTimeouts.get(existingConversation.remoteJid);
-        if (pixTimeout) {
-            clearTimeout(pixTimeout.timeout);
-            pixTimeouts.delete(existingConversation.remoteJid);
-        }
-        
-        // Atualizar conversa existente
-        existingConversation.funnelId = newFunnelId;
-        existingConversation.stepIndex = 0;
-        existingConversation.orderCode = orderCode;
-        existingConversation.amount = amount;
-        existingConversation.waiting_for_response = false;
-        existingConversation.lastSystemMessage = null;
-        
-        // IMPORTANTE: Manter a mesma instância
-        if (existingInstance) {
-            stickyInstances.set(remoteJid, existingInstance);
-        }
-        
-        conversations.set(remoteJid, existingConversation);
-        
-        // Iniciar novo funil com a instância mantida
-        await sendStep(remoteJid);
-    } else {
-        // Se não existe conversa, criar nova
-        await startFunnel(remoteJid, newFunnelId, orderCode, customerName, productType, amount);
-    }
-}
-
+// ============ ORQUESTRAÇÃO DE FUNIS ============
 async function startFunnel(remoteJid, funnelId, orderCode, customerName, productType, amount) {
     const conversation = {
         remoteJid,
@@ -529,7 +595,8 @@ async function sendStep(remoteJid) {
     const step = funnel.steps[conversation.stepIndex];
     if (!step) return;
     
-    const isFirstMessage = conversation.stepIndex === 0 && !stickyInstances.has(remoteJid);
+    // ✅ NOVA LÓGICA: Detectar primeira mensagem
+    const isFirstMessage = conversation.stepIndex === 0;
     
     const idempotencyKey = 'SEND:' + remoteJid + ':' + conversation.funnelId + ':' + conversation.stepIndex;
     if (checkIdempotency(idempotencyKey)) {
@@ -542,13 +609,13 @@ async function sendStep(remoteJid) {
         isFirstMessage 
     });
     
-    // DELAY ANTES
+    // DELAY ANTES (se configurado)
     if (step.delayBefore && step.delayBefore > 0) {
         addLog('STEP_DELAY', 'Aguardando ' + step.delayBefore + 's antes do passo ' + conversation.stepIndex);
         await new Promise(resolve => setTimeout(resolve, step.delayBefore * 1000));
     }
     
-    // MOSTRAR DIGITANDO
+    // MOSTRAR DIGITANDO (se configurado)
     if (step.showTyping) {
         await sendTypingIndicator(remoteJid);
     }
@@ -557,23 +624,28 @@ async function sendStep(remoteJid) {
     
     // PROCESSAR TIPO DO PASSO
     if (step.type === 'delay') {
+        // Passo de delay puro
         const delaySeconds = step.delaySeconds || 10;
         addLog('STEP_DELAY', 'Executando delay de ' + delaySeconds + 's no passo ' + conversation.stepIndex);
         await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
         
     } else if (step.type === 'typing') {
+        // Passo de digitando puro
         const typingSeconds = step.typingSeconds || 3;
         addLog('STEP_TYPING', 'Mostrando digitando por ' + typingSeconds + 's no passo ' + conversation.stepIndex);
         await sendTypingIndicator(remoteJid, typingSeconds);
         
     } else {
+        // ✅ ENVIO COM ROUND-ROBIN PARA PRIMEIRA MENSAGEM
         result = await sendWithFallback(remoteJid, step.type, step.text, step.mediaUrl, isFirstMessage);
     }
     
     if (result.success) {
         conversation.lastSystemMessage = new Date();
         
+        // ✅ CORREÇÃO CRÍTICA: Verificar waitForReply corretamente
         if (step.waitForReply && step.type !== 'delay' && step.type !== 'typing') {
+            // Aguardar resposta em mensagens normais
             conversation.waiting_for_response = true;
             addLog('STEP_WAITING_REPLY', 'Passo ' + conversation.stepIndex + ' aguardando resposta do cliente', { 
                 funnelId: conversation.funnelId, 
@@ -587,15 +659,20 @@ async function sendStep(remoteJid) {
                 }, step.timeoutMinutes * 60 * 1000);
             }
             
+            // ✅ IMPORTANTE: Salvar estado antes de aguardar resposta
             conversations.set(remoteJid, conversation);
         } else {
+            // ✅ CORREÇÃO: Avançar automaticamente quando waitForReply é false
             addLog('STEP_AUTO_ADVANCE', 'Passo ' + conversation.stepIndex + ' avançando automaticamente', { 
                 funnelId: conversation.funnelId, 
                 waitForReply: step.waitForReply,
                 stepType: step.type
             });
             
+            // Salvar estado atual antes de avançar
             conversations.set(remoteJid, conversation);
+            
+            // Avançar automaticamente para o próximo passo
             await advanceConversation(remoteJid, null, 'auto');
         }
         
@@ -605,10 +682,12 @@ async function sendStep(remoteJid) {
     }
 }
 
+// Enviar indicador de digitação
 async function sendTypingIndicator(remoteJid, durationSeconds = 3) {
     const instanceName = stickyInstances.get(remoteJid) || INSTANCES[0];
     
     try {
+        // Iniciar digitação
         await sendToEvolution(instanceName, '/chat/sendPresence', {
             number: remoteJid.replace('@s.whatsapp.net', ''),
             presence: 'composing'
@@ -616,8 +695,10 @@ async function sendTypingIndicator(remoteJid, durationSeconds = 3) {
         
         addLog('TYPING_START', 'Iniciando digitação para ' + remoteJid + ' por ' + durationSeconds + 's');
         
+        // Aguardar o tempo especificado
         await new Promise(resolve => setTimeout(resolve, durationSeconds * 1000));
         
+        // Parar digitação
         await sendToEvolution(instanceName, '/chat/sendPresence', {
             number: remoteJid.replace('@s.whatsapp.net', ''),
             presence: 'paused'
@@ -652,6 +733,7 @@ async function advanceConversation(remoteJid, replyText, reason) {
         return;
     }
     
+    // ✅ LOGS DETALHADOS para debug
     addLog('ADVANCE_START', 'Iniciando avanço da conversa', {
         remoteJid: remoteJid,
         currentStep: conversation.stepIndex,
@@ -681,6 +763,7 @@ async function advanceConversation(remoteJid, replyText, reason) {
             finalStep: conversation.stepIndex
         });
         
+        // ✅ Marcar conversa como finalizada mas manter no registro
         conversation.waiting_for_response = false;
         conversation.completed = true;
         conversation.completedAt = new Date();
@@ -688,6 +771,7 @@ async function advanceConversation(remoteJid, replyText, reason) {
         return;
     }
     
+    // ✅ Atualizar conversa
     conversation.stepIndex = nextStepIndex;
     conversation.waiting_for_response = false;
     if (reason === 'reply') {
@@ -704,6 +788,7 @@ async function advanceConversation(remoteJid, replyText, reason) {
         reason: reason
     });
     
+    // ✅ Enviar próximo passo
     await sendStep(remoteJid);
 }
 
@@ -753,7 +838,6 @@ app.post('/webhook/kirvano', async (req, res) => {
         const isPix = method.includes('PIX') || event.includes('PIX');
         
         if (isApproved) {
-            // CORREÇÃO: Usar changeFunnel ao invés de startFunnel
             const pixTimeout = pixTimeouts.get(remoteJid);
             if (pixTimeout) {
                 clearTimeout(pixTimeout.timeout);
@@ -762,7 +846,7 @@ app.post('/webhook/kirvano', async (req, res) => {
             }
             
             funnelId = productType === 'FAB' ? 'FAB_APROVADA' : 'CS_APROVADA';
-            await changeFunnel(remoteJid, funnelId, orderCode, customerName, productType, totalPrice);
+            await startFunnel(remoteJid, funnelId, orderCode, customerName, productType, totalPrice);
             
         } else if (isPix) {
             funnelId = productType === 'FAB' ? 'FAB_PIX' : 'CS_PIX';
@@ -772,13 +856,7 @@ app.post('/webhook/kirvano', async (req, res) => {
                 clearTimeout(existingTimeout.timeout);
             }
             
-            // Se já tem conversa, usar changeFunnel
-            const existingConversation = findConversationByPhone(customerPhone);
-            if (existingConversation) {
-                await changeFunnel(remoteJid, funnelId, orderCode, customerName, productType, totalPrice);
-            } else {
-                await startFunnel(remoteJid, funnelId, orderCode, customerName, productType, totalPrice);
-            }
+            await startFunnel(remoteJid, funnelId, orderCode, customerName, productType, totalPrice);
             
             const timeout = setTimeout(async () => {
                 const conversation = conversations.get(remoteJid);
@@ -805,7 +883,9 @@ app.post('/webhook/kirvano', async (req, res) => {
     }
 });
 
+// ✅ CORREÇÃO 3: Adicionar logs detalhados no webhook Evolution
 app.post('/webhook/evolution', async (req, res) => {
+    // ✅ Log completo do webhook recebido
     console.log('===== WEBHOOK EVOLUTION RECEBIDO =====');
     console.log(JSON.stringify(req.body, null, 2));
     addLog('WEBHOOK_RECEIVED', 'Webhook Evolution recebido', req.body);
@@ -830,11 +910,14 @@ app.post('/webhook/evolution', async (req, res) => {
             hasConversation: conversations.has(remoteJid)
         });
         
+        // ✅ CORREÇÃO 6: Remover lógica de ACK que não funciona mais
         if (fromMe) {
             addLog('WEBHOOK_FROM_ME', 'Mensagem enviada por nós ignorada', { remoteJid });
             return res.json({ success: true });
         } else {
             const incomingPhone = messageData.key.remoteJid.replace('@s.whatsapp.net', '');
+            
+            // ✅ CORREÇÃO: Usar busca flexível por telefone
             const conversation = findConversationByPhone(incomingPhone);
             
             if (conversation && conversation.waiting_for_response) {
@@ -876,19 +959,22 @@ app.post('/webhook/evolution', async (req, res) => {
 
 // ============ API ENDPOINTS ============
 
-// Dashboard
+// Dashboard - estatísticas principais com distribuição de instâncias
 app.get('/api/dashboard', (req, res) => {
+    // Contar uso por instância
     const instanceUsage = {};
     INSTANCES.forEach(inst => {
         instanceUsage[inst] = 0;
     });
     
+    // Contar quantas conversas estão fixadas em cada instância
     stickyInstances.forEach((instance) => {
         if (instanceUsage[instance] !== undefined) {
             instanceUsage[instance]++;
         }
     });
     
+    // Calcular próxima instância na fila
     const nextInstanceIndex = instanceRoundRobin % INSTANCES.length;
     const nextInstance = INSTANCES[nextInstanceIndex];
     
@@ -911,7 +997,7 @@ app.get('/api/dashboard', (req, res) => {
     });
 });
 
-// Funis - CRUD
+// Funis - CRUD completo
 app.get('/api/funnels', (req, res) => {
     const funnelsList = Array.from(funis.values()).map(funnel => ({
         ...funnel,
@@ -938,6 +1024,7 @@ app.post('/api/funnels', (req, res) => {
     funis.set(funnel.id, funnel);
     addLog('FUNNEL_SAVED', 'Funil salvo: ' + funnel.id);
     
+    // Salvar imediatamente no arquivo
     saveFunnelsToFile();
     
     res.json({ 
@@ -947,70 +1034,10 @@ app.post('/api/funnels', (req, res) => {
     });
 });
 
-// NOVO: Exportar funis
-app.get('/api/funnels/export', (req, res) => {
-    const funnelsArray = Array.from(funis.values());
-    
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', 'attachment; filename="kirvano_funnels_' + Date.now() + '.json"');
-    
-    res.json({
-        version: '1.0',
-        exportDate: new Date().toISOString(),
-        funnels: funnelsArray
-    });
-});
-
-// NOVO: Importar funis
-app.post('/api/funnels/import', (req, res) => {
-    try {
-        const data = req.body;
-        
-        if (!data.funnels || !Array.isArray(data.funnels)) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Formato inválido. Esperado: { funnels: [...] }' 
-            });
-        }
-        
-        // Limpar funis atuais
-        funis.clear();
-        
-        // Importar novos funis
-        data.funnels.forEach(funnel => {
-            if (funnel.id && funnel.name && funnel.steps) {
-                funis.set(funnel.id, funnel);
-            }
-        });
-        
-        // Se não importou nada, restaurar padrões
-        if (funis.size === 0) {
-            Object.values(defaultFunnels).forEach(funnel => {
-                funis.set(funnel.id, funnel);
-            });
-        }
-        
-        saveFunnelsToFile();
-        
-        addLog('FUNNELS_IMPORTED', 'Funis importados: ' + funis.size);
-        
-        res.json({ 
-            success: true, 
-            message: funis.size + ' funis importados com sucesso',
-            count: funis.size
-        });
-        
-    } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            error: 'Erro ao importar: ' + error.message 
-        });
-    }
-});
-
 app.delete('/api/funnels/:id', (req, res) => {
     const { id } = req.params;
     
+    // Proteger funis padrão
     if (id.includes('_APROVADA') || id.includes('_PIX')) {
         return res.status(400).json({ 
             success: false, 
@@ -1021,14 +1048,17 @@ app.delete('/api/funnels/:id', (req, res) => {
     if (funis.has(id)) {
         funis.delete(id);
         addLog('FUNNEL_DELETED', 'Funil excluído: ' + id);
+        
+        // Salvar imediatamente no arquivo
         saveFunnelsToFile();
+        
         res.json({ success: true, message: 'Funil excluído com sucesso' });
     } else {
         res.status(404).json({ success: false, error: 'Funil não encontrado' });
     }
 });
 
-// Conversas
+// Conversas/Envios
 app.get('/api/conversations', (req, res) => {
     const conversationsList = Array.from(conversations.entries()).map(([remoteJid, conv]) => ({
         id: remoteJid,
@@ -1046,6 +1076,7 @@ app.get('/api/conversations', (req, res) => {
         stickyInstance: stickyInstances.get(remoteJid)
     }));
     
+    // Ordenar por mais recente primeiro
     conversationsList.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     
     res.json({
@@ -1054,7 +1085,7 @@ app.get('/api/conversations', (req, res) => {
     });
 });
 
-// Logs
+// Logs recentes
 app.get('/api/logs', (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     const recentLogs = logs.slice(0, limit).map(log => ({
@@ -1096,7 +1127,7 @@ app.post('/api/send-test', async (req, res) => {
     }
 });
 
-// Debug Evolution API
+// Debug da Evolution API
 app.get('/api/debug/evolution', async (req, res) => {
     const debugInfo = {
         evolution_base_url: EVOLUTION_BASE_URL,
@@ -1109,6 +1140,7 @@ app.get('/api/debug/evolution', async (req, res) => {
         test_results: []
     };
     
+    // Testar conexão com primeiro endpoint
     try {
         const testInstance = INSTANCES[0];
         const url = EVOLUTION_BASE_URL + '/message/sendText/' + testInstance;
@@ -1122,7 +1154,7 @@ app.get('/api/debug/evolution', async (req, res) => {
                 'apikey': EVOLUTION_API_KEY
             },
             timeout: 10000,
-            validateStatus: () => true
+            validateStatus: () => true // Aceitar qualquer status para debug
         });
         
         debugInfo.test_results.push({
@@ -1144,12 +1176,12 @@ app.get('/api/debug/evolution', async (req, res) => {
     res.json(debugInfo);
 });
 
-// Servir frontend
+// ============ SERVIR FRONTEND ============
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Inicialização
+// Inicialização - carregar dados persistidos
 async function initializeData() {
     console.log('🔄 Carregando dados persistidos...');
     
@@ -1168,24 +1200,48 @@ async function initializeData() {
     console.log('💬 Conversas ativas:', conversations.size);
 }
 
+// ============ INICIALIZAÇÃO ============
 app.listen(PORT, async () => {
     console.log('='.repeat(60));
-    console.log('🚀 KIRVANO SYSTEM - VERSÃO CORRIGIDA');
+    console.log('🚀 KIRVANO SYSTEM - BACKEND API [VERSÃO COM ROUND-ROBIN]');
     console.log('='.repeat(60));
+    console.log('Porta:', PORT);
+    console.log('Evolution:', EVOLUTION_BASE_URL);
+    console.log('API Key configurada:', EVOLUTION_API_KEY !== 'SUA_API_KEY_AQUI');
+    console.log('Instâncias:', INSTANCES.length);
     console.log('');
-    console.log('✅ CORREÇÕES APLICADAS:');
-    console.log('  1. Instâncias fixas por lead');
-    console.log('  2. Troca de funil mantém instância');
-    console.log('  3. Áudio como gravação normal');
-    console.log('  4. Endpoints de import/export');
+    console.log('🔧 MODIFICAÇÕES APLICADAS:');
+    console.log('  ✅ 1. Round-robin para primeiras mensagens');
+    console.log('  ✅ 2. Detecção automática de primeira mensagem');
+    console.log('  ✅ 3. Distribuição inteligente entre instâncias');
+    console.log('  ✅ 4. Fallback mantido para mensagens subsequentes');
+    console.log('  ✅ 5. Logs detalhados de distribuição');
+    console.log('  ✅ 6. Contador round-robin no dashboard');
+    console.log('  ✅ 7. Remoção do bloco wait_reply');
     console.log('');
-    console.log('📡 NOVOS ENDPOINTS:');
-    console.log('  GET  /api/funnels/export - Baixar backup');
-    console.log('  POST /api/funnels/import - Restaurar backup');
+    console.log('🎯 RESULTADO ESPERADO:');
+    console.log('  • Distribuição equilibrada de conversas');
+    console.log('  • Sticky instance para mensagens subsequentes');
+    console.log('  • Fallback automático em caso de falha');
+    console.log('  • Logs de distribuição detalhados');
+    console.log('');
+    console.log('📡 API Endpoints:');
+    console.log('  GET  /api/dashboard     - Estatísticas + Round-robin');
+    console.log('  GET  /api/funnels       - Listar funis');
+    console.log('  POST /api/funnels       - Criar/editar funil');
+    console.log('  GET  /api/conversations  - Listar conversas');
+    console.log('  GET  /api/logs          - Logs recentes');
+    console.log('  POST /api/send-test     - Teste de envio');
+    console.log('  GET  /api/debug/evolution - Debug Evolution API');
+    console.log('');
+    console.log('📨 Webhooks:');
+    console.log('  POST /webhook/kirvano   - Eventos Kirvano');
+    console.log('  POST /webhook/evolution - Eventos Evolution');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('🧪 Testes: http://localhost:' + PORT + '/test.html');
     console.log('='.repeat(60));
     
+    // Carregar dados persistidos
     await initializeData();
 });
