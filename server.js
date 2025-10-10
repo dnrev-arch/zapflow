@@ -472,13 +472,15 @@ async function sendVideo(remoteJid, videoUrl, caption, clientMessageId, instance
 }
 
 async function sendAudio(remoteJid, audioUrl, clientMessageId, instanceName) {
+    // ✅ SOLUÇÃO COMPLETA: Usar endpoint específico para áudio
     const payload = {
         number: remoteJid.replace('@s.whatsapp.net', ''),
-        mediatype: 'audio',
-        media: audioUrl,
-        ptt: false // ✅ CORREÇÃO: false para áudio normal (NÃO como voice note)
+        audio: audioUrl,
+        ptt: false // false para áudio normal, true para voice note
     };
-    return await sendToEvolution(instanceName, '/message/sendMedia', payload);
+    
+    // Use o endpoint específico para áudio em vez do sendMedia genérico
+    return await sendToEvolution(instanceName, '/message/sendAudio', payload);
 }
 
 // ============ ENVIO COM FALLBACK E ROUND-ROBIN ============
