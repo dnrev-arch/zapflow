@@ -20,7 +20,7 @@
         }
 
         .container {
-            max-width: 900px;
+            max-width: 800px;
             margin: 0 auto;
         }
 
@@ -113,10 +113,6 @@
             background: #6b7280;
         }
 
-        .btn-warning {
-            background: #f59e0b;
-        }
-
         .result {
             margin-top: 16px;
             padding: 12px;
@@ -163,31 +159,6 @@
             margin-bottom: 12px;
         }
 
-        .test-flow {
-            background: #fef3c7;
-            border: 1px solid #f59e0b;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 12px;
-        }
-
-        .test-flow h4 {
-            color: #92400e;
-            margin-bottom: 8px;
-        }
-
-        .test-flow p {
-            color: #78350f;
-            font-size: 14px;
-            margin-bottom: 12px;
-        }
-
-        .test-buttons {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
-        }
-
         .logs-container {
             background: #1f2937;
             color: #f9fafb;
@@ -206,119 +177,40 @@
         .log-success { color: #10b981; }
         .log-error { color: #ef4444; }
         .log-info { color: #3b82f6; }
-        .log-warning { color: #f59e0b; }
-
-        .instance-badge {
-            display: inline-block;
-            background: #667eea;
-            color: white;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-
-        .info-box {
-            background: #dbeafe;
-            border: 1px solid #3b82f6;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 16px;
-        }
-
-        .info-box h4 {
-            color: #1e40af;
-            margin-bottom: 8px;
-        }
-
-        .info-box p {
-            color: #1e3a8a;
-            font-size: 14px;
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🧪 Simulador de Testes Kirvano - VERSÃO CORRIGIDA</h1>
-            <p>Teste suas automações com instâncias fixas e transições de funil</p>
-        </div>
-
-        <!-- INFORMAÇÕES IMPORTANTES -->
-        <div class="test-card">
-            <div class="info-box">
-                <h4>✅ Correções Aplicadas</h4>
-                <p>• Instâncias fixas por lead (não muda mais de número)</p>
-                <p>• Transição de PIX → Aprovado mantém a mesma instância</p>
-                <p>• Áudio enviado como gravação normal (não encaminhado)</p>
-                <p>• Botões de importar/exportar funis funcionando</p>
-            </div>
-        </div>
-
-        <!-- TESTE DE FLUXO COMPLETO -->
-        <div class="test-card">
-            <h3>🔄 Teste de Fluxo Completo (PIX → Aprovado)</h3>
-            
-            <div class="test-flow">
-                <h4>Simular Cliente Completo</h4>
-                <p>Este teste simula um cliente que gera PIX e depois paga, verificando se mantém a mesma instância</p>
-                
-                <div class="form-group">
-                    <label class="form-label">Telefone do Cliente (será usado em ambos eventos)</label>
-                    <input type="text" id="flowPhone" class="form-input" placeholder="5575999999999">
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Nome do Cliente</label>
-                    <input type="text" id="flowName" class="form-input" placeholder="João Teste">
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Produto</label>
-                    <select id="flowProduct" class="form-select">
-                        <option value="CS">CS (Curso/Serviço)</option>
-                        <option value="FAB">FAB (Fábrica)</option>
-                    </select>
-                </div>
-                
-                <div class="test-buttons">
-                    <button class="btn btn-warning" onclick="sendFlowTest('PIX')">
-                        1️⃣ Gerar PIX
-                    </button>
-                    <button class="btn" onclick="sendFlowTest('APPROVED')">
-                        2️⃣ Aprovar Pagamento
-                    </button>
-                </div>
-                
-                <div id="flowResult"></div>
-            </div>
+            <h1>🧪 Simulador de Testes Kirvano</h1>
+            <p>Simule eventos de compra para testar seus funis sem precisar fazer vendas reais</p>
         </div>
 
         <!-- TESTES RÁPIDOS -->
         <div class="test-card">
-            <h3>⚡ Testes Rápidos (Números Aleatórios)</h3>
+            <h3>⚡ Testes Rápidos</h3>
             
             <div class="preset-card">
                 <h4>CS - Compra Aprovada</h4>
-                <p>Simula uma compra aprovada do produto CS com número aleatório</p>
+                <p>Simula uma compra aprovada do produto CS</p>
                 <button class="btn" onclick="sendQuickTest('CS', 'APPROVED')">Testar CS Aprovada</button>
             </div>
             
             <div class="preset-card">
                 <h4>CS - PIX Pendente</h4>
-                <p>Simula um PIX gerado e pendente do produto CS com número aleatório</p>
+                <p>Simula um PIX gerado e pendente do produto CS</p>
                 <button class="btn" onclick="sendQuickTest('CS', 'PIX')">Testar CS PIX</button>
             </div>
             
             <div class="preset-card">
                 <h4>FAB - Compra Aprovada</h4>
-                <p>Simula uma compra aprovada do produto FAB com número aleatório</p>
+                <p>Simula uma compra aprovada do produto FAB</p>
                 <button class="btn" onclick="sendQuickTest('FAB', 'APPROVED')">Testar FAB Aprovada</button>
             </div>
             
             <div class="preset-card">
                 <h4>FAB - PIX Pendente</h4>
-                <p>Simula um PIX gerado e pendente do produto FAB com número aleatório</p>
+                <p>Simula um PIX gerado e pendente do produto FAB</p>
                 <button class="btn" onclick="sendQuickTest('FAB', 'PIX')">Testar FAB PIX</button>
             </div>
         </div>
@@ -334,7 +226,7 @@
             
             <div class="form-group">
                 <label class="form-label">Telefone (com código do país)</label>
-                <input type="text" id="customerPhone" class="form-input" value="5575999999999" placeholder="5575999999999">
+                <input type="text" id="customerPhone" class="form-input" value="5511999999999" placeholder="5511999999999">
             </div>
             
             <div class="form-group">
@@ -374,7 +266,7 @@
 
         <!-- DEBUG EVOLUTION -->
         <div class="test-card">
-            <h3>🔧 Debug Evolution API & Instâncias</h3>
+            <h3>🔧 Debug Evolution API</h3>
             <button class="btn btn-secondary" onclick="debugEvolution()" style="margin-bottom: 16px;">Verificar Configuração</button>
             <div id="debugContainer">
                 <div class="log-entry">Clique no botão acima para verificar a configuração da Evolution API</div>
@@ -389,77 +281,9 @@
             'FAB': '5288799c-d8e3-48ce-a91d-587814acdee5'
         };
 
-        // Variável para armazenar o telefone do último teste de fluxo
-        let lastFlowPhone = '';
-        let lastFlowInstance = '';
-
-        // TESTE DE FLUXO COMPLETO
-        async function sendFlowTest(eventType) {
-            const phone = document.getElementById('flowPhone').value;
-            const name = document.getElementById('flowName').value || 'Cliente Teste Fluxo';
-            const product = document.getElementById('flowProduct').value;
-            
-            if (!phone) {
-                showFlowResult('Por favor, insira um telefone!', 'error');
-                return;
-            }
-            
-            // Salvar telefone para comparação
-            if (eventType === 'PIX') {
-                lastFlowPhone = phone;
-            }
-            
-            const eventData = createEventData(name, phone, product, eventType, 'R$ 197,00');
-            
-            try {
-                const response = await fetch('/webhook/kirvano', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(eventData)
-                });
-                
-                const result = await response.json();
-                
-                // Buscar a instância usada
-                const conversationsResponse = await fetch('/api/conversations');
-                const conversations = await conversationsResponse.json();
-                
-                let instanceUsed = '-';
-                if (conversations.success) {
-                    const conv = conversations.data.find(c => c.phone.includes(phone.replace(/\D/g, '')));
-                    if (conv && conv.stickyInstance) {
-                        instanceUsed = conv.stickyInstance;
-                    }
-                }
-                
-                // Verificar se manteve a instância
-                let instanceCheck = '';
-                if (eventType === 'APPROVED' && lastFlowPhone === phone && lastFlowInstance) {
-                    if (instanceUsed === lastFlowInstance) {
-                        instanceCheck = '\n✅ SUCESSO: Manteve a mesma instância!';
-                    } else {
-                        instanceCheck = '\n❌ ERRO: Mudou de instância! (Era ' + lastFlowInstance + ', agora é ' + instanceUsed + ')';
-                    }
-                }
-                
-                lastFlowInstance = instanceUsed;
-                
-                showFlowResult(`${eventType === 'PIX' ? '1️⃣ PIX Gerado' : '2️⃣ Pagamento Aprovado'}
-Telefone: ${phone}
-Funil: ${product}_${eventType === 'PIX' ? 'PIX' : 'APROVADA'}
-Instância: ${instanceUsed}${instanceCheck}`, 'success');
-                
-                // Atualizar logs
-                setTimeout(loadLogs, 1000);
-                
-            } catch (error) {
-                showFlowResult('Erro ao enviar: ' + error.message, 'error');
-            }
-        }
-
         // TESTES RÁPIDOS
         async function sendQuickTest(product, eventType) {
-            const randomPhone = '5575' + Math.floor(Math.random() * 1000000000).toString().padStart(9, '0');
+            const randomPhone = '5511' + Math.floor(Math.random() * 1000000000).toString().padStart(9, '0');
             const customerName = 'Cliente Teste ' + Math.floor(Math.random() * 1000);
             
             const eventData = createEventData(customerName, randomPhone, product, eventType, 'R$ 197,00');
@@ -473,22 +297,10 @@ Instância: ${instanceUsed}${instanceCheck}`, 'success');
                 
                 const result = await response.json();
                 
-                // Buscar a instância usada
-                const conversationsResponse = await fetch('/api/conversations');
-                const conversations = await conversationsResponse.json();
-                
-                let instanceUsed = 'Buscando...';
-                if (conversations.success) {
-                    const conv = conversations.data.find(c => c.phone.includes(randomPhone.replace(/\D/g, '')));
-                    if (conv && conv.stickyInstance) {
-                        instanceUsed = conv.stickyInstance;
-                    }
-                }
-                
-                showResult(`Teste ${product} ${eventType} enviado!
+                // Mostrar resultado
+                showResult(`Teste ${product} ${eventType} enviado com sucesso!
 Telefone: ${randomPhone}
 Cliente: ${customerName}
-Instância atribuída: ${instanceUsed}
 Resposta: ${JSON.stringify(result, null, 2)}`, 'success');
                 
                 // Atualizar logs
@@ -523,20 +335,7 @@ Resposta: ${JSON.stringify(result, null, 2)}`, 'success');
                 
                 const result = await response.json();
                 
-                // Buscar a instância usada
-                const conversationsResponse = await fetch('/api/conversations');
-                const conversations = await conversationsResponse.json();
-                
-                let instanceUsed = 'Buscando...';
-                if (conversations.success) {
-                    const conv = conversations.data.find(c => c.phone.includes(customerPhone.replace(/\D/g, '')));
-                    if (conv && conv.stickyInstance) {
-                        instanceUsed = conv.stickyInstance;
-                    }
-                }
-                
                 showCustomResult(`Evento enviado com sucesso!
-Instância: ${instanceUsed}
 Resposta: ${JSON.stringify(result, null, 2)}`, 'success');
                 
                 // Atualizar logs
@@ -589,13 +388,16 @@ Resposta: ${JSON.stringify(result, null, 2)}`, 'success');
 
         // MOSTRAR RESULTADOS
         function showResult(message, type) {
+            // Criar elemento de resultado temporário
             const resultDiv = document.createElement('div');
             resultDiv.className = 'result ' + type;
             resultDiv.textContent = message;
             
+            // Adicionar após o último botão de teste rápido
             const lastPreset = document.querySelectorAll('.preset-card');
             lastPreset[lastPreset.length - 1].appendChild(resultDiv);
             
+            // Remover após 5 segundos
             setTimeout(() => {
                 if (resultDiv.parentNode) {
                     resultDiv.parentNode.removeChild(resultDiv);
@@ -608,16 +410,11 @@ Resposta: ${JSON.stringify(result, null, 2)}`, 'success');
             resultDiv.className = 'result ' + type;
             resultDiv.textContent = message;
             
+            // Remover após 10 segundos
             setTimeout(() => {
                 resultDiv.innerHTML = '';
                 resultDiv.className = '';
             }, 10000);
-        }
-
-        function showFlowResult(message, type) {
-            const resultDiv = document.getElementById('flowResult');
-            resultDiv.className = 'result ' + type;
-            resultDiv.textContent = message;
         }
 
         // CARREGAR LOGS
@@ -655,25 +452,16 @@ Resposta: ${JSON.stringify(result, null, 2)}`, 'success');
                     className += ' log-error';
                 } else if (log.type.includes('SUCCESS') || log.type.includes('START')) {
                     className += ' log-success';
-                } else if (log.type.includes('INSTANCE') || log.type.includes('STICKY')) {
-                    className += ' log-warning';
                 } else {
                     className += ' log-info';
                 }
 
-                // Destacar logs de instância
-                let message = log.message;
-                if (log.message.includes('D01') || log.message.includes('D02') || log.message.includes('D03') ||
-                    log.message.includes('D04') || log.message.includes('D05') || log.message.includes('D06') ||
-                    log.message.includes('D07') || log.message.includes('D08') || log.message.includes('D09') ||
-                    log.message.includes('D10') || log.message.includes('D11')) {
-                    message = message.replace(/(D\d{2})/g, '<span class="instance-badge">$1</span>');
-                }
-
-                html += `<div class="${className}">[${timestamp}] ${log.type}: <span style="display: inline-block;">${message}</span></div>`;
+                html += `<div class="${className}">[${timestamp}] ${log.type}: ${log.message}</div>`;
             });
 
             container.innerHTML = html;
+            
+            // Scroll para o topo
             container.scrollTop = 0;
         }
 
@@ -683,13 +471,8 @@ Resposta: ${JSON.stringify(result, null, 2)}`, 'success');
             container.innerHTML = '<div class="log-entry log-info">Verificando configuração...</div>';
             
             try {
-                // Buscar debug da Evolution
-                const debugResponse = await fetch('/api/debug/evolution');
-                const debug = await debugResponse.json();
-                
-                // Buscar dashboard para info de instâncias
-                const dashboardResponse = await fetch('/api/dashboard');
-                const dashboard = await dashboardResponse.json();
+                const response = await fetch('/api/debug/evolution');
+                const debug = await response.json();
                 
                 let html = '';
                 
@@ -699,29 +482,12 @@ Resposta: ${JSON.stringify(result, null, 2)}`, 'success');
                 html += 'API Key: ' + (debug.evolution_api_key_configured ? 'Configurada (' + debug.evolution_api_key_length + ' caracteres)' : 'NÃO CONFIGURADA');
                 html += '</div>';
                 
-                html += '<div class="log-entry log-info">Instâncias disponíveis: ' + debug.instances.join(', ') + '</div>';
+                html += '<div class="log-entry log-info">Instâncias: ' + debug.instances.join(', ') + '</div>';
                 
-                // Info de distribuição
-                if (dashboard.success) {
-                    html += '<div class="log-entry log-warning">--- Distribuição de Instâncias ---</div>';
-                    html += '<div class="log-entry log-info">Conversas ativas: ' + dashboard.data.active_conversations + '</div>';
-                    html += '<div class="log-entry log-info">Round-robin counter: ' + dashboard.data.round_robin_counter + '</div>';
-                    html += '<div class="log-entry log-success">Próxima instância: ' + dashboard.data.next_instance_in_queue + '</div>';
-                    
-                    if (dashboard.data.instance_distribution) {
-                        html += '<div class="log-entry log-warning">--- Uso por Instância ---</div>';
-                        Object.entries(dashboard.data.instance_distribution).forEach(([inst, count]) => {
-                            const barLength = Math.max(1, Math.round(count / 2));
-                            const bar = '█'.repeat(barLength);
-                            html += '<div class="log-entry log-info">' + inst + ': ' + bar + ' (' + count + ' conversas)</div>';
-                        });
-                    }
-                }
-                
-                // Resultado do teste de conexão
+                // Resultado do teste
                 if (debug.test_results.length > 0) {
                     const test = debug.test_results[0];
-                    html += '<div class="log-entry log-warning">--- Teste de Conexão ---</div>';
+                    html += '<div class="log-entry log-info">--- Teste de Conexão ---</div>';
                     
                     if (test.error) {
                         html += '<div class="log-entry log-error">Erro: ' + test.error + '</div>';
@@ -732,6 +498,7 @@ Resposta: ${JSON.stringify(result, null, 2)}`, 'success');
                         html += '<div class="log-entry ' + (test.status === 200 ? 'log-success' : 'log-error') + '">';
                         html += 'Status HTTP: ' + test.status + '</div>';
                         html += '<div class="log-entry log-info">URL Testada: ' + test.url + '</div>';
+                        html += '<div class="log-entry log-info">Resposta: ' + JSON.stringify(test.response, null, 2) + '</div>';
                     }
                 }
                 
