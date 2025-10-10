@@ -475,7 +475,8 @@ async function sendAudio(remoteJid, audioUrl, clientMessageId, instanceName) {
     const payload = {
         number: remoteJid.replace('@s.whatsapp.net', ''),
         mediatype: 'audio',
-        media: audioUrl
+        media: audioUrl,
+        ptt: false // ✅ CORREÇÃO: false para áudio normal (NÃO como voice note)
     };
     return await sendToEvolution(instanceName, '/message/sendMedia', payload);
 }
