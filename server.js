@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data', 'funnels.json');
 const CONVERSATIONS_FILE = path.join(__dirname, 'data', 'conversations.json');
 
-// Produto único CS
+// Mapeamento de produtos (AJUSTE COM SEUS IDs)
 const PRODUCT_MAPPING = {
     'e79419d3-5b71-4f90-954b-b05e94de8d98': 'CS',
     '06539c76-40ee-4811-8351-ab3f5ccc4437': 'CS',
@@ -21,7 +21,7 @@ const PRODUCT_MAPPING = {
     '668a73bc-2fca-4f12-9331-ef945181cd5c': 'FAB'
 };
 
-// Instâncias Evolution (fallback sequencial)
+// Instâncias Evolution (AJUSTE COM SUAS INSTÂNCIAS)
 const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'D11', 'D12'];
 
 // ============ ARMAZENAMENTO EM MEMÓRIA ============
@@ -29,12 +29,12 @@ let conversations = new Map();
 let phoneIndex = new Map();
 let stickyInstances = new Map();
 let pixTimeouts = new Map();
-let webhookLocks = new Map(); // Lock APENAS para webhooks
+let webhookLocks = new Map();
 let logs = [];
 let funis = new Map();
 let lastSuccessfulInstanceIndex = -1;
 
-// ============ FUNIS PADRÃO ============
+// ============ FUNIS PADRÃO (CS + FAB) ============
 const defaultFunnels = {
     'CS_APROVADA': {
         id: 'CS_APROVADA',
@@ -127,6 +127,78 @@ const defaultFunnels = {
                 text: 'PIX vencido! Entre em contato conosco para gerar um novo.'
             }
         ]
+    },
+    'FAB_APROVADA': {
+        id: 'FAB_APROVADA',
+        name: 'FAB - Compra Aprovada',
+        steps: [
+            {
+                id: 'step_0',
+                type: 'text',
+                text: 'Parabéns! Seu pedido FAB foi aprovado. Bem-vindo!',
+                waitForReply: true
+            },
+            {
+                id: 'step_1',
+                type: 'text',
+                text: 'Obrigado pela resposta! Confirma se recebeu o acesso ao FAB por email?',
+                waitForReply: true
+            },
+            {
+                id: 'step_2',
+                type: 'text',
+                text: 'Perfeito! Aproveite o conteúdo FAB. Qualquer dúvida, estamos aqui!'
+            },
+            {
+                id: 'step_3',
+                type: 'delay',
+                delaySeconds: 420
+            },
+            {
+                id: 'step_4',
+                type: 'text',
+                text: 'Já está conseguindo acessar o conteúdo FAB? Precisa de ajuda?',
+                waitForReply: true
+            },
+            {
+                id: 'step_5',
+                type: 'text',
+                text: 'Ótimo! Aproveite o conteúdo e bons estudos!'
+            }
+        ]
+    },
+    'FAB_PIX': {
+        id: 'FAB_PIX',
+        name: 'FAB - PIX Pendente',
+        steps: [
+            {
+                id: 'step_0',
+                type: 'text',
+                text: 'Seu PIX FAB foi gerado! Aguardamos o pagamento.',
+                waitForReply: true
+            },
+            {
+                id: 'step_1',
+                type: 'text',
+                text: 'Obrigado pelo contato! Está com dificuldades no pagamento?',
+                waitForReply: true
+            },
+            {
+                id: 'step_2',
+                type: 'text',
+                text: 'Nossa equipe está disponível para ajudar com o pagamento!'
+            },
+            {
+                id: 'step_3',
+                type: 'delay',
+                delaySeconds: 1500
+            },
+            {
+                id: 'step_4',
+                type: 'text',
+                text: 'Ainda não identificamos seu pagamento. O PIX tem validade limitada.'
+            }
+        ]
     }
 };
 
@@ -179,7 +251,7 @@ async function loadFunnelsFromFile() {
         
         funis.clear();
         funnelsArray.forEach(funnel => {
-            if (funnel.id.startsWith('CS_')) {
+            if (funnel.id.startsWith('CS_') || funnel.id.startsWith('FAB_')) {
                 funis.set(funnel.id, funnel);
             }
         });
@@ -376,11 +448,13 @@ async function sendVideo(remoteJid, videoUrl, caption, instanceName) {
     });
 }
 
+// ✅ CORREÇÃO: Áudio como PTT (Push to Talk - gravado)
 async function sendAudio(remoteJid, audioUrl, instanceName) {
-    return await sendToEvolution(instanceName, '/message/sendMedia', {
+    return await sendToEvolution(instanceName, '/message/sendWhatsAppAudio', {
         number: remoteJid.replace('@s.whatsapp.net', ''),
-        mediatype: 'audio',
-        media: audioUrl
+        audioMessage: {
+            audio: audioUrl
+        }
     });
 }
 
@@ -451,7 +525,7 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
     const conversation = {
         phoneKey,
         remoteJid,
-        funnelId: 'CS_PIX',
+        funnelId: productType + '_PIX',
         stepIndex: -1,
         orderCode,
         customerName,
@@ -467,7 +541,7 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
     };
     
     conversations.set(phoneKey, conversation);
-    addLog('PIX_WAITING_CREATED', `PIX em espera para ${phoneKey}`, { orderCode });
+    addLog('PIX_WAITING_CREATED', `PIX em espera para ${phoneKey}`, { orderCode, productType });
     
     const timeout = setTimeout(async () => {
         const conv = conversations.get(phoneKey);
@@ -503,8 +577,6 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
         addLog('PIX_TIMEOUT_CANCELED', `Timeout cancelado para ${phoneKey}`, { orderCode });
     }
     
-    // CORREÇÃO: Se cliente nunca interagiu (stepIndex: -1), começa do passo 0
-    // Se já interagiu (stepIndex >= 0), começa do passo 3
     let startingStep = 0;
     
     if (pixConv && pixConv.stepIndex >= 0) {
@@ -517,7 +589,7 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
     const approvedConv = {
         phoneKey,
         remoteJid,
-        funnelId: 'CS_APROVADA',
+        funnelId: productType + '_APROVADA',
         stepIndex: startingStep,
         orderCode,
         customerName,
@@ -530,11 +602,11 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
         canceled: false,
         completed: false,
         transferredFromPix: true,
-        previousFunnel: 'CS_PIX'
+        previousFunnel: productType + '_PIX'
     };
     
     conversations.set(phoneKey, approvedConv);
-    addLog('TRANSFER_PIX_TO_APPROVED', `Transferido para APROVADA`, { phoneKey, startingStep });
+    addLog('TRANSFER_PIX_TO_APPROVED', `Transferido para APROVADA`, { phoneKey, startingStep, productType });
     
     await sendStep(phoneKey);
 }
@@ -679,9 +751,11 @@ app.post('/webhook/kirvano', async (req, res) => {
         const remoteJid = phoneToRemoteJid(customerPhone);
         registerPhone(customerPhone, phoneKey);
         
-        const productType = 'CS';
+        // Detectar produto pelo ID
+        const productId = data.product_id || data.products?.[0]?.id;
+        const productType = PRODUCT_MAPPING[productId] || 'CS';
         
-        addLog('KIRVANO_EVENT', `${event} - ${customerName}`, { orderCode, phoneKey, method });
+        addLog('KIRVANO_EVENT', `${event} - ${customerName}`, { orderCode, phoneKey, method, productType });
         
         const isApproved = event.includes('APPROVED') || event.includes('PAID') || status === 'APPROVED';
         const isPix = method.includes('PIX') || event.includes('PIX');
@@ -689,11 +763,11 @@ app.post('/webhook/kirvano', async (req, res) => {
         if (isApproved) {
             const existingConv = conversations.get(phoneKey);
             
-            if (existingConv && existingConv.funnelId === 'CS_PIX') {
-                addLog('KIRVANO_PIX_TO_APPROVED', `Cliente pagou PIX`, { phoneKey, orderCode });
+            if (existingConv && existingConv.funnelId === productType + '_PIX') {
+                addLog('KIRVANO_PIX_TO_APPROVED', `Cliente pagou PIX`, { phoneKey, orderCode, productType });
                 await transferPixToApproved(phoneKey, remoteJid, orderCode, customerName, productType, totalPrice);
             } else {
-                addLog('KIRVANO_DIRECT_APPROVED', `Pagamento aprovado direto`, { phoneKey, orderCode });
+                addLog('KIRVANO_DIRECT_APPROVED', `Pagamento aprovado direto`, { phoneKey, orderCode, productType });
                 
                 const pixTimeout = pixTimeouts.get(phoneKey);
                 if (pixTimeout) {
@@ -701,10 +775,10 @@ app.post('/webhook/kirvano', async (req, res) => {
                     pixTimeouts.delete(phoneKey);
                 }
                 
-                await startFunnel(phoneKey, remoteJid, 'CS_APROVADA', orderCode, customerName, productType, totalPrice);
+                await startFunnel(phoneKey, remoteJid, productType + '_APROVADA', orderCode, customerName, productType, totalPrice);
             }
         } else if (isPix && event.includes('GENERATED')) {
-            addLog('KIRVANO_PIX_GENERATED', `PIX gerado, aguardando 7min`, { phoneKey, orderCode });
+            addLog('KIRVANO_PIX_GENERATED', `PIX gerado, aguardando 7min`, { phoneKey, orderCode, productType });
             
             const existingConv = conversations.get(phoneKey);
             if (existingConv && !existingConv.canceled) {
@@ -747,7 +821,6 @@ app.post('/webhook/evolution', async (req, res) => {
             return res.json({ success: true });
         }
         
-        // ÚNICO LOCK - no webhook
         const hasLock = await acquireWebhookLock(phoneKey);
         if (!hasLock) {
             return res.json({ success: false, message: 'Lock timeout' });
@@ -767,7 +840,6 @@ app.post('/webhook/evolution', async (req, res) => {
             conversation.lastReply = new Date();
             conversations.set(phoneKey, conversation);
             
-            // SEM LOCK - apenas chama a função
             await advanceConversation(phoneKey, messageText, 'reply');
             
             res.json({ success: true });
@@ -823,7 +895,7 @@ app.get('/api/dashboard', (req, res) => {
 app.get('/api/funnels', (req, res) => {
     const funnelsList = Array.from(funis.values()).map(funnel => ({
         ...funnel,
-        isDefault: funnel.id === 'CS_APROVADA' || funnel.id === 'CS_PIX',
+        isDefault: funnel.id === 'CS_APROVADA' || funnel.id === 'CS_PIX' || funnel.id === 'FAB_APROVADA' || funnel.id === 'FAB_PIX',
         stepCount: funnel.steps.length
     }));
     
@@ -837,8 +909,8 @@ app.post('/api/funnels', (req, res) => {
         return res.status(400).json({ success: false, error: 'Campos obrigatórios faltando' });
     }
     
-    if (!funnel.id.startsWith('CS_')) {
-        return res.status(400).json({ success: false, error: 'Apenas funis CS permitidos' });
+    if (!funnel.id.startsWith('CS_') && !funnel.id.startsWith('FAB_')) {
+        return res.status(400).json({ success: false, error: 'Apenas funis CS e FAB permitidos' });
     }
     
     funis.set(funnel.id, funnel);
@@ -879,7 +951,7 @@ app.post('/api/funnels/import', (req, res) => {
         let importedCount = 0, skippedCount = 0;
         
         importData.funnels.forEach(funnel => {
-            if (funnel.id && funnel.name && funnel.steps && funnel.id.startsWith('CS_')) {
+            if (funnel.id && funnel.name && funnel.steps && (funnel.id.startsWith('CS_') || funnel.id.startsWith('FAB_'))) {
                 funis.set(funnel.id, funnel);
                 importedCount++;
             } else {
@@ -1007,21 +1079,20 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO SYSTEM V4.0 - VERSÃO FINAL CORRIGIDA');
+    console.log('🚀 KIRVANO SYSTEM V4.0 - CS + FAB');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
     console.log('Instâncias:', INSTANCES.length);
     console.log('');
-    console.log('✅ CORREÇÕES IMPLEMENTADAS:');
-    console.log('  1. Lock APENAS no webhook (sem deadlock)');
-    console.log('  2. PIX aguarda 7min antes de enviar');
-    console.log('  3. Transferência PIX→APROVADA corrigida');
-    console.log('  4. Se não interagiu: começa APROVADA passo 0');
-    console.log('  5. Se interagiu: começa APROVADA passo 3');
+    console.log('✅ RECURSOS IMPLEMENTADOS:');
+    console.log('  1. Suporte a CS e FAB (4 funis)');
+    console.log('  2. Áudio como PTT (gravado, não encaminhado)');
+    console.log('  3. Lock APENAS no webhook (sem deadlock)');
+    console.log('  4. PIX aguarda 7min antes de enviar');
+    console.log('  5. Transferência PIX→APROVADA inteligente');
     console.log('  6. Sticky instance mantida sempre');
     console.log('  7. Retry automático 3x por instância');
-    console.log('  8. Avanço automático sem locks');
     console.log('');
     console.log('📡 Endpoints:');
     console.log('  POST /webhook/kirvano      - Eventos Kirvano');
