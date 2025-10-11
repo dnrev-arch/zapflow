@@ -406,6 +406,12 @@ function addLog(type, message, data = null) {
 async function sendToEvolution(instanceName, endpoint, payload) {
     const url = EVOLUTION_BASE_URL + endpoint + '/' + instanceName;
     try {
+        addLog('EVOLUTION_REQUEST', `Enviando para ${instanceName}`, { 
+            url, 
+            endpoint,
+            payloadKeys: Object.keys(payload)
+        });
+        
         const response = await axios.post(url, payload, {
             headers: {
                 'Content-Type': 'application/json',
@@ -413,8 +419,20 @@ async function sendToEvolution(instanceName, endpoint, payload) {
             },
             timeout: 15000
         });
+        
+        addLog('EVOLUTION_SUCCESS', `Resposta OK de ${instanceName}`, { 
+            status: response.status 
+        });
+        
         return { ok: true, data: response.data };
     } catch (error) {
+        addLog('EVOLUTION_ERROR', `Erro ao enviar para ${instanceName}`, { 
+            url,
+            status: error.response?.status,
+            error: error.response?.data || error.message,
+            code: error.code
+        });
+        
         return { 
             ok: false, 
             error: error.response?.data || error.message,
@@ -450,11 +468,36 @@ async function sendVideo(remoteJid, videoUrl, caption, instanceName) {
 
 // ✅ CORREÇÃO: Áudio como PTT (Push to Talk - gravado)
 async function sendAudio(remoteJid, audioUrl, instanceName) {
-    return await sendToEvolution(instanceName, '/message/sendWhatsAppAudio', {
+    // TENTATIVA 1: Formato PTT padrão
+    const result1 = await sendToEvolution(instanceName, '/message/sendMedia', {
+        number: remoteJid.replace('@s.whatsapp.net', ''),
+        mediatype: 'audio',
+        media: audioUrl,
+        mimetype: 'audio/mpeg'
+    });
+    
+    if (result1.ok) return result1;
+    
+    addLog('AUDIO_TRY_2', `Tentativa 1 falhou, tentando formato 2`, { error: result1.error });
+    
+    // TENTATIVA 2: Formato alternativo
+    const result2 = await sendToEvolution(instanceName, '/message/sendWhatsAppAudio', {
         number: remoteJid.replace('@s.whatsapp.net', ''),
         audioMessage: {
             audio: audioUrl
         }
+    });
+    
+    if (result2.ok) return result2;
+    
+    addLog('AUDIO_TRY_3', `Tentativa 2 falhou, tentando formato 3`, { error: result2.error });
+    
+    // TENTATIVA 3: Formato base64
+    return await sendToEvolution(instanceName, '/message/sendMedia', {
+        number: remoteJid.replace('@s.whatsapp.net', ''),
+        mediatype: 'audio',
+        media: audioUrl,
+        fileName: 'audio.mp3'
     });
 }
 
@@ -1018,14 +1061,33 @@ app.get('/api/debug/evolution', async (req, res) => {
     const debugInfo = {
         evolution_base_url: EVOLUTION_BASE_URL,
         evolution_api_key_configured: EVOLUTION_API_KEY !== 'SUA_API_KEY_AQUI',
-        instances: INSTANCES,
+        instances_configured: INSTANCES,
         active_conversations: conversations.size,
         sticky_instances_count: stickyInstances.size,
         pix_timeouts_active: pixTimeouts.size,
         webhook_locks_active: webhookLocks.size,
-        test_results: []
+        test_results: [],
+        available_instances: []
     };
     
+    // Testar listagem de instâncias
+    try {
+        const listUrl = EVOLUTION_BASE_URL + '/instance/fetchInstances';
+        const listResponse = await axios.get(listUrl, {
+            headers: {
+                'apikey': EVOLUTION_API_KEY
+            },
+            timeout: 10000,
+            validateStatus: () => true
+        });
+        
+        debugInfo.available_instances = listResponse.data;
+        debugInfo.list_status = listResponse.status;
+    } catch (error) {
+        debugInfo.list_error = error.message;
+    }
+    
+    // Testar primeira instância
     try {
         const testInstance = INSTANCES[0];
         const url = EVOLUTION_BASE_URL + '/message/sendText/' + testInstance;
@@ -1045,12 +1107,14 @@ app.get('/api/debug/evolution', async (req, res) => {
         debugInfo.test_results.push({
             instance: testInstance,
             status: response.status,
-            response: response.data
+            response: response.data,
+            url: url
         });
     } catch (error) {
         debugInfo.test_results.push({
             instance: INSTANCES[0],
-            error: error.message
+            error: error.message,
+            code: error.code
         });
     }
     
