@@ -466,38 +466,19 @@ async function sendVideo(remoteJid, videoUrl, caption, instanceName) {
     });
 }
 
-// ✅ CORREÇÃO: Áudio como PTT (Push to Talk - gravado)
+// ✅ CORREÇÃO: Áudio como PTT (Evolution v2.3.2)
 async function sendAudio(remoteJid, audioUrl, instanceName) {
-    // TENTATIVA 1: Formato PTT padrão
-    const result1 = await sendToEvolution(instanceName, '/message/sendMedia', {
-        number: remoteJid.replace('@s.whatsapp.net', ''),
-        mediatype: 'audio',
-        media: audioUrl,
-        mimetype: 'audio/mpeg'
-    });
-    
-    if (result1.ok) return result1;
-    
-    addLog('AUDIO_TRY_2', `Tentativa 1 falhou, tentando formato 2`, { error: result1.error });
-    
-    // TENTATIVA 2: Formato alternativo
-    const result2 = await sendToEvolution(instanceName, '/message/sendWhatsAppAudio', {
-        number: remoteJid.replace('@s.whatsapp.net', ''),
-        audioMessage: {
-            audio: audioUrl
-        }
-    });
-    
-    if (result2.ok) return result2;
-    
-    addLog('AUDIO_TRY_3', `Tentativa 2 falhou, tentando formato 3`, { error: result2.error });
-    
-    // TENTATIVA 3: Formato base64
+    // Formato específico para Evolution API v2.3.2 - Áudio PTT
     return await sendToEvolution(instanceName, '/message/sendMedia', {
         number: remoteJid.replace('@s.whatsapp.net', ''),
         mediatype: 'audio',
         media: audioUrl,
-        fileName: 'audio.mp3'
+        options: {
+            delay: 1200,
+            presence: 'composing',
+            linkPreview: false
+        },
+        encoding: true
     });
 }
 
@@ -707,6 +688,20 @@ async function sendStep(phoneKey) {
     
     let result = { success: true };
     
+    // ✅ PROCESSAR DELAY ANTES DA MENSAGEM
+    if (step.delayBefore && step.delayBefore > 0) {
+        const delaySeconds = parseInt(step.delayBefore);
+        addLog('STEP_DELAY_BEFORE', `Aguardando ${delaySeconds}s antes de enviar`, { phoneKey });
+        await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
+    }
+    
+    // ✅ PROCESSAR "DIGITANDO..." SE CONFIGURADO
+    if (step.showTyping && step.type !== 'delay' && step.type !== 'typing') {
+        addLog('STEP_SHOW_TYPING', `Mostrando "digitando..." por 3s`, { phoneKey });
+        await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+    
+    // PROCESSAR O PASSO
     if (step.type === 'delay') {
         const delaySeconds = step.delaySeconds || 10;
         addLog('STEP_DELAY', `Delay de ${delaySeconds}s`, { phoneKey });
@@ -1143,20 +1138,21 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO SYSTEM V4.0 - CS + FAB');
+    console.log('🚀 KIRVANO SYSTEM V4.0 - CS + FAB + EVOLUTION v2.3.2');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
-    console.log('Instâncias:', INSTANCES.length);
+    console.log('Instâncias:', INSTANCES.length, '-', INSTANCES.join(', '));
     console.log('');
     console.log('✅ RECURSOS IMPLEMENTADOS:');
     console.log('  1. Suporte a CS e FAB (4 funis)');
-    console.log('  2. Áudio como PTT (gravado, não encaminhado)');
+    console.log('  2. Áudio como PTT Evolution v2.3.2');
     console.log('  3. Lock APENAS no webhook (sem deadlock)');
     console.log('  4. PIX aguarda 7min antes de enviar');
     console.log('  5. Transferência PIX→APROVADA inteligente');
     console.log('  6. Sticky instance mantida sempre');
     console.log('  7. Retry automático 3x por instância');
+    console.log('  8. Usando apenas instâncias conectadas');
     console.log('');
     console.log('📡 Endpoints:');
     console.log('  POST /webhook/kirvano      - Eventos Kirvano');
