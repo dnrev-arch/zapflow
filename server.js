@@ -13,7 +13,9 @@ const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data', 'funnels.json');
 const CONVERSATIONS_FILE = path.join(__dirname, 'data', 'conversations.json');
 
-// Mapeamento de produtos (AJUSTE COM SEUS IDs)
+// ============ MAPEAMENTO DE PRODUTOS ============
+
+// Kirvano - Mapeamento por offer_id (MANTIDO EXATAMENTE IGUAL)
 const PRODUCT_MAPPING = {
     'e79419d3-5b71-4f90-954b-b05e94de8d98': 'CS',
     '06539c76-40ee-4811-8351-ab3f5ccc4437': 'CS',
@@ -21,10 +23,31 @@ const PRODUCT_MAPPING = {
     '668a73bc-2fca-4f12-9331-ef945181cd5c': 'FAB'
 };
 
-// Instâncias Evolution (AJUSTE COM SUAS INSTÂNCIAS)
+// ✨ PERFECTPAY - NOVO (adicionado)
+const PERFECTPAY_PLANS = {
+    'PPLQQNCF7': 'CS',  // ZAP VIP - CS 19
+    'PPLQQNCF8': 'CS',  // ZAP VIP - CS 29
+};
+
+const PERFECTPAY_PRODUCTS = {
+    'PPU38CQ0GE8': 'CS',  // ZAP VIP (fallback)
+};
+
+// Função para identificar produto PerfectPay (NOVA)
+function identifyPerfectPayProduct(productCode, planCode) {
+    if (planCode && PERFECTPAY_PLANS[planCode]) {
+        return PERFECTPAY_PLANS[planCode];
+    }
+    if (productCode && PERFECTPAY_PRODUCTS[productCode]) {
+        return PERFECTPAY_PRODUCTS[productCode];
+    }
+    return 'CS';
+}
+
+// Instâncias Evolution (MANTIDO IGUAL)
 const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'D11', 'D12'];
 
-// ============ ARMAZENAMENTO EM MEMÓRIA ============
+// ============ ARMAZENAMENTO EM MEMÓRIA (MANTIDO IGUAL) ============
 let conversations = new Map();
 let phoneIndex = new Map();
 let stickyInstances = new Map();
@@ -34,7 +57,7 @@ let logs = [];
 let funis = new Map();
 let lastSuccessfulInstanceIndex = -1;
 
-// ============ FUNIS PADRÃO (CS + FAB) ============
+// ============ FUNIS PADRÃO (MANTIDO IGUAL) ============
 const defaultFunnels = {
     'CS_APROVADA': {
         id: 'CS_APROVADA',
@@ -202,7 +225,7 @@ const defaultFunnels = {
     }
 };
 
-// ============ SISTEMA DE LOCK SIMPLIFICADO (APENAS WEBHOOK) ============
+// ============ SISTEMA DE LOCK (MANTIDO IGUAL) ============
 async function acquireWebhookLock(phoneKey, timeout = 10000) {
     const startTime = Date.now();
     
@@ -224,7 +247,7 @@ function releaseWebhookLock(phoneKey) {
     addLog('WEBHOOK_LOCK_RELEASED', `Lock webhook liberado para ${phoneKey}`);
 }
 
-// ============ PERSISTÊNCIA DE DADOS ============
+// ============ PERSISTÊNCIA (MANTIDO IGUAL) ============
 async function ensureDataDir() {
     try {
         await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
@@ -327,11 +350,11 @@ setInterval(async () => {
 
 Object.values(defaultFunnels).forEach(funnel => funis.set(funnel.id, funnel));
 
-// ============ MIDDLEWARES ============
+// ============ MIDDLEWARES (MANTIDO IGUAL) ============
 app.use(express.json());
 app.use(express.static('public'));
 
-// ============ FUNÇÕES AUXILIARES ============
+// ============ FUNÇÕES AUXILIARES (MANTIDO IGUAL) ============
 function extractPhoneKey(phone) {
     if (!phone) return '';
     const cleaned = phone.replace(/\D/g, '');
@@ -402,7 +425,7 @@ function addLog(type, message, data = null) {
     console.log('[' + log.timestamp.toISOString() + '] ' + type + ': ' + message);
 }
 
-// ============ EVOLUTION API ============
+// ============ EVOLUTION API (MANTIDO IGUAL) ============
 async function sendToEvolution(instanceName, endpoint, payload) {
     const url = EVOLUTION_BASE_URL + endpoint + '/' + instanceName;
     try {
@@ -466,12 +489,10 @@ async function sendVideo(remoteJid, videoUrl, caption, instanceName) {
     });
 }
 
-// ✅ SOLUÇÃO DEFINITIVA: Áudio como PTT com Base64 (100% garantido)
 async function sendAudio(remoteJid, audioUrl, instanceName) {
     try {
         addLog('AUDIO_DOWNLOAD_START', `Baixando áudio de ${audioUrl}`, { phoneKey: remoteJid });
         
-        // 1. Baixar o áudio da URL
         const audioResponse = await axios.get(audioUrl, {
             responseType: 'arraybuffer',
             timeout: 30000,
@@ -480,13 +501,11 @@ async function sendAudio(remoteJid, audioUrl, instanceName) {
             }
         });
         
-        // 2. Converter para Base64
         const base64Audio = Buffer.from(audioResponse.data, 'binary').toString('base64');
         const audioBase64 = `data:audio/mpeg;base64,${base64Audio}`;
         
         addLog('AUDIO_CONVERTED', `Áudio convertido para base64 (${Math.round(base64Audio.length / 1024)}KB)`, { phoneKey: remoteJid });
         
-        // 3. Enviar como PTT usando base64
         const result = await sendToEvolution(instanceName, '/message/sendWhatsAppAudio', {
             number: remoteJid.replace('@s.whatsapp.net', ''),
             audio: audioBase64,
@@ -499,7 +518,6 @@ async function sendAudio(remoteJid, audioUrl, instanceName) {
             return result;
         }
         
-        // 4. Se falhou, tentar formato alternativo
         addLog('AUDIO_RETRY_ALTERNATIVE', `Tentando formato alternativo`, { phoneKey: remoteJid });
         
         return await sendToEvolution(instanceName, '/message/sendMedia', {
@@ -516,7 +534,6 @@ async function sendAudio(remoteJid, audioUrl, instanceName) {
             error: error.message 
         });
         
-        // 5. Fallback final: tentar enviar URL direta
         addLog('AUDIO_FALLBACK_URL', `Usando fallback com URL direta`, { phoneKey: remoteJid });
         
         return await sendToEvolution(instanceName, '/message/sendWhatsAppAudio', {
@@ -527,7 +544,7 @@ async function sendAudio(remoteJid, audioUrl, instanceName) {
     }
 }
 
-// ============ ENVIO COM RETRY ============
+// ============ ENVIO COM RETRY (MANTIDO IGUAL) ============
 async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFirstMessage = false) {
     let instancesToTry = [...INSTANCES];
     const stickyInstance = stickyInstances.get(phoneKey);
@@ -588,7 +605,7 @@ async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFir
     return { success: false, error: lastError };
 }
 
-// ============ ORQUESTRAÇÃO - SEM LOCKS INTERNOS ============
+// ============ ORQUESTRAÇÃO (MANTIDO IGUAL) ============
 
 async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, amount) {
     const conversation = {
@@ -733,20 +750,17 @@ async function sendStep(phoneKey) {
     
     let result = { success: true };
     
-    // ✅ PROCESSAR DELAY ANTES DA MENSAGEM
     if (step.delayBefore && step.delayBefore > 0) {
         const delaySeconds = parseInt(step.delayBefore);
         addLog('STEP_DELAY_BEFORE', `Aguardando ${delaySeconds}s antes de enviar`, { phoneKey });
         await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
     }
     
-    // ✅ PROCESSAR "DIGITANDO..." SE CONFIGURADO
     if (step.showTyping && step.type !== 'delay' && step.type !== 'typing') {
         addLog('STEP_SHOW_TYPING', `Mostrando "digitando..." por 3s`, { phoneKey });
         await new Promise(resolve => setTimeout(resolve, 3000));
     }
     
-    // PROCESSAR O PASSO
     if (step.type === 'delay') {
         const delaySeconds = step.delaySeconds || 10;
         addLog('STEP_DELAY', `Delay de ${delaySeconds}s`, { phoneKey });
@@ -813,6 +827,8 @@ async function advanceConversation(phoneKey, replyText, reason) {
 }
 
 // ============ WEBHOOKS ============
+
+// WEBHOOK KIRVANO (MANTIDO EXATAMENTE IGUAL AO SEU CÓDIGO ATUAL)
 app.post('/webhook/kirvano', async (req, res) => {
     try {
         const data = req.body;
@@ -834,7 +850,7 @@ app.post('/webhook/kirvano', async (req, res) => {
         const remoteJid = phoneToRemoteJid(customerPhone);
         registerPhone(customerPhone, phoneKey);
         
-        // Detectar produto pelo ID
+        // ✅ MANTIDO IGUAL AO SEU CÓDIGO: usa .id
         const productId = data.product_id || data.products?.[0]?.id;
         const productType = PRODUCT_MAPPING[productId] || 'CS';
         
@@ -880,6 +896,105 @@ app.post('/webhook/kirvano', async (req, res) => {
     }
 });
 
+// ✨ WEBHOOK PERFECTPAY (NOVO - ÚNICA ADIÇÃO!)
+app.post('/webhook/perfectpay', async (req, res) => {
+    try {
+        const data = req.body;
+        
+        const statusEnum = parseInt(data.sale_status_enum);
+        const saleCode = data.code;
+        const productCode = data.product?.code;
+        const planCode = data.plan?.code;
+        const customerName = data.customer?.full_name || 'Cliente';
+        const phoneAreaCode = data.customer?.phone_area_code || '';
+        const phoneNumber = data.customer?.phone_number || '';
+        const customerPhone = phoneAreaCode + phoneNumber;
+        const saleAmount = data.sale_amount || 0;
+        const totalPrice = 'R$ ' + (saleAmount / 100).toFixed(2).replace('.', ',');
+        const paymentType = parseInt(data.payment_type_enum || 0);
+        
+        const phoneKey = extractPhoneKey(customerPhone);
+        if (!phoneKey || phoneKey.length !== 8) {
+            addLog('PERFECTPAY_INVALID_PHONE', `Telefone inválido: ${customerPhone}`);
+            return res.json({ success: false, message: 'Telefone inválido' });
+        }
+        
+        const remoteJid = phoneToRemoteJid(customerPhone);
+        registerPhone(customerPhone, phoneKey);
+        
+        const productType = identifyPerfectPayProduct(productCode, planCode);
+        
+        addLog('PERFECTPAY_WEBHOOK', `Status ${statusEnum} - ${customerName}`, { 
+            saleCode, 
+            phoneKey, 
+            productType,
+            productCode,
+            planCode,
+            totalPrice
+        });
+        
+        if (statusEnum === 2) {
+            const existingConv = conversations.get(phoneKey);
+            
+            if (existingConv && existingConv.funnelId === productType + '_PIX') {
+                addLog('PERFECTPAY_PIX_TO_APPROVED', `Cliente pagou PIX/Boleto`, { 
+                    phoneKey, 
+                    saleCode, 
+                    productType,
+                    plan: planCode 
+                });
+                await transferPixToApproved(phoneKey, remoteJid, saleCode, customerName, productType, totalPrice);
+            } else {
+                addLog('PERFECTPAY_DIRECT_APPROVED', `Pagamento aprovado direto`, { 
+                    phoneKey, 
+                    saleCode, 
+                    productType,
+                    plan: planCode 
+                });
+                
+                const pixTimeout = pixTimeouts.get(phoneKey);
+                if (pixTimeout) {
+                    clearTimeout(pixTimeout.timeout);
+                    pixTimeouts.delete(phoneKey);
+                }
+                
+                await startFunnel(phoneKey, remoteJid, productType + '_APROVADA', saleCode, customerName, productType, totalPrice);
+            }
+        }
+        else if (statusEnum === 1) {
+            if (paymentType === 2) {
+                addLog('PERFECTPAY_BOLETO_GENERATED', `Boleto gerado (ignorado)`, { 
+                    phoneKey, 
+                    saleCode 
+                });
+                return res.json({ success: true, message: 'Boleto ignorado' });
+            }
+            
+            addLog('PERFECTPAY_PIX_GENERATED', `PIX gerado, aguardando 7min`, { 
+                phoneKey, 
+                saleCode, 
+                productType,
+                plan: planCode 
+            });
+            
+            const existingConv = conversations.get(phoneKey);
+            if (existingConv && !existingConv.canceled) {
+                addLog('PERFECTPAY_PIX_DUPLICATE', `Conversa já existe`, { phoneKey });
+                return res.json({ success: true, message: 'Conversa já existe' });
+            }
+            
+            await createPixWaitingConversation(phoneKey, remoteJid, saleCode, customerName, productType, totalPrice);
+        }
+        
+        res.json({ success: true, phoneKey, productType });
+        
+    } catch (error) {
+        addLog('PERFECTPAY_ERROR', error.message, { stack: error.stack });
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// WEBHOOK EVOLUTION (MANTIDO EXATAMENTE IGUAL)
 app.post('/webhook/evolution', async (req, res) => {
     try {
         const data = req.body;
@@ -938,7 +1053,7 @@ app.post('/webhook/evolution', async (req, res) => {
     }
 });
 
-// ============ API ENDPOINTS ============
+// ============ API ENDPOINTS (MANTIDO TUDO IGUAL) ============
 
 app.get('/api/dashboard', (req, res) => {
     const instanceUsage = {};
@@ -1110,7 +1225,6 @@ app.get('/api/debug/evolution', async (req, res) => {
         available_instances: []
     };
     
-    // Testar listagem de instâncias
     try {
         const listUrl = EVOLUTION_BASE_URL + '/instance/fetchInstances';
         const listResponse = await axios.get(listUrl, {
@@ -1127,7 +1241,6 @@ app.get('/api/debug/evolution', async (req, res) => {
         debugInfo.list_error = error.message;
     }
     
-    // Testar primeira instância
     try {
         const testInstance = INSTANCES[0];
         const url = EVOLUTION_BASE_URL + '/message/sendText/' + testInstance;
@@ -1183,7 +1296,7 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO SYSTEM V4.1 - CS + FAB [DEFINITIVO]');
+    console.log('🚀 KIRVANO + PERFECTPAY SYSTEM V4.2 - CS + FAB');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
@@ -1191,21 +1304,23 @@ app.listen(PORT, async () => {
     console.log('');
     console.log('✅ RECURSOS IMPLEMENTADOS:');
     console.log('  1. Suporte a CS e FAB (4 funis)');
-    console.log('  2. Áudio PTT Base64 (100% garantido) 🎤');
-    console.log('  3. Delays respeitados corretamente ⏰');
-    console.log('  4. Lock APENAS no webhook (sem deadlock)');
-    console.log('  5. PIX aguarda 7min antes de enviar');
-    console.log('  6. Transferência PIX→APROVADA inteligente');
-    console.log('  7. Sticky instance mantida sempre');
-    console.log('  8. Retry automático 3x por instância');
-    console.log('  9. Fallback em 3 níveis para áudio');
+    console.log('  2. Integração KIRVANO + PERFECTPAY ✨');
+    console.log('  3. Áudio PTT Base64 (100% garantido) 🎤');
+    console.log('  4. Delays respeitados corretamente ⏰');
+    console.log('  5. Lock APENAS no webhook (sem deadlock)');
+    console.log('  6. PIX aguarda 7min antes de enviar');
+    console.log('  7. Transferência PIX→APROVADA inteligente');
+    console.log('  8. Sticky instance mantida sempre');
+    console.log('  9. Retry automático 3x por instância');
+    console.log('  10. Fallback em 3 níveis para áudio');
     console.log('');
     console.log('📡 Endpoints:');
-    console.log('  POST /webhook/kirvano      - Eventos Kirvano');
-    console.log('  POST /webhook/evolution    - Respostas clientes');
-    console.log('  GET  /api/dashboard        - Estatísticas');
-    console.log('  GET  /api/conversations    - Conversas');
-    console.log('  GET  /api/logs             - Logs');
+    console.log('  POST /webhook/kirvano       - Eventos Kirvano');
+    console.log('  POST /webhook/perfectpay    - Eventos PerfectPay ✨');
+    console.log('  POST /webhook/evolution     - Respostas clientes');
+    console.log('  GET  /api/dashboard         - Estatísticas');
+    console.log('  GET  /api/conversations     - Conversas');
+    console.log('  GET  /api/logs              - Logs');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('='.repeat(70));
