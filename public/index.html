@@ -280,6 +280,18 @@
             background: #dc2626;
         }
 
+        /* ✅ NOVO: CSS para botões desabilitados */
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: #9ca3af !important;
+        }
+
+        .btn:disabled:hover {
+            transform: none;
+            box-shadow: none;
+        }
+
         .steps-container {
             min-height: 400px;
         }
@@ -779,6 +791,42 @@
             return names[type] || 'Mensagem';
         }
 
+        // ✅ NOVA FUNÇÃO: Mover passos
+        async function moveStep(index, direction) {
+            if (!currentFunnelData) {
+                alert('❌ Nenhum funil selecionado!');
+                return;
+            }
+            
+            const toIndex = direction === 'up' ? index - 1 : index + 1;
+            
+            if (toIndex < 0 || toIndex >= currentFunnelData.steps.length) {
+                alert('❌ Não é possível mover nesta direção!');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/funnels/${currentFunnelData.id}/move-step`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fromIndex: index, direction })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    currentFunnelData = result.data;
+                    renderSteps();
+                    console.log('✅ Passo movido com sucesso!');
+                } else {
+                    alert('❌ Erro: ' + result.error);
+                }
+            } catch (error) {
+                alert('❌ Erro ao mover: ' + error.message);
+                console.error('Erro:', error);
+            }
+        }
+
         function renderSteps() {
             const container = document.getElementById('stepsContainer');
             
@@ -802,6 +850,24 @@
                     <div class="step-card ${isEditing ? 'editing' : ''}">
                         <div class="step-header">
                             <div style="display: flex; align-items: center; gap: 12px;">
+                                <!-- ✅ BOTÕES DE SETAS À ESQUERDA -->
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <button class="btn btn-small" 
+                                            onclick="moveStep(${index}, 'up')" 
+                                            ${index === 0 ? 'disabled' : ''}
+                                            title="Mover para cima"
+                                            style="padding: 4px 8px; font-size: 16px; line-height: 1;">
+                                        ↑
+                                    </button>
+                                    <button class="btn btn-small" 
+                                            onclick="moveStep(${index}, 'down')" 
+                                            ${index === currentFunnelData.steps.length - 1 ? 'disabled' : ''}
+                                            title="Mover para baixo"
+                                            style="padding: 4px 8px; font-size: 16px; line-height: 1;">
+                                        ↓
+                                    </button>
+                                </div>
+                                
                                 <div class="step-number">${index + 1}</div>
                                 <div class="step-type">
                                     <span>${stepIcon}</span>
