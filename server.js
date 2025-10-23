@@ -15,7 +15,7 @@ const CONVERSATIONS_FILE = path.join(__dirname, 'data', 'conversations.json');
 
 // ============ MAPEAMENTO DE PRODUTOS ============
 
-// Kirvano - Mapeamento por offer_id (MANTIDO EXATAMENTE IGUAL)
+// Kirvano - Mapeamento por offer_id
 const PRODUCT_MAPPING = {
     'e79419d3-5b71-4f90-954b-b05e94de8d98': 'CS',
     '06539c76-40ee-4811-8351-ab3f5ccc4437': 'CS',
@@ -23,7 +23,7 @@ const PRODUCT_MAPPING = {
     '668a73bc-2fca-4f12-9331-ef945181cd5c': 'FAB'
 };
 
-// ✨ PERFECTPAY - NOVO (adicionado)
+// ✨ PERFECTPAY - Mapeamento
 const PERFECTPAY_PLANS = {
     'PPLQQNCF7': 'CS',  // ZAP VIP - CS 19
     'PPLQQNCF8': 'CS',  // ZAP VIP - CS 29
@@ -33,7 +33,7 @@ const PERFECTPAY_PRODUCTS = {
     'PPU38CQ0GE8': 'CS',  // ZAP VIP (fallback)
 };
 
-// Função para identificar produto PerfectPay (NOVA)
+// Função para identificar produto PerfectPay
 function identifyPerfectPayProduct(productCode, planCode) {
     if (planCode && PERFECTPAY_PLANS[planCode]) {
         return PERFECTPAY_PLANS[planCode];
@@ -44,10 +44,31 @@ function identifyPerfectPayProduct(productCode, planCode) {
     return 'CS';
 }
 
-// Instâncias Evolution (MANTIDO IGUAL)
+// ✨ Função auxiliar para descrição de status PerfectPay
+function getStatusDescription(statusEnum) {
+    const descriptions = {
+        0: 'none',
+        1: 'pending (PIX/Boleto pendente)',
+        2: 'approved (venda aprovada)',
+        3: 'in_process (em revisão)',
+        4: 'in_mediation (em moderação)',
+        5: 'rejected (rejeitado)',
+        6: 'cancelled (cancelado)',
+        7: 'refunded (devolvido)',
+        8: 'authorized (autorizada)',
+        9: 'charged_back (chargeback solicitado)',
+        10: 'completed (30 dias após aprovação)',
+        11: 'checkout_error (erro no checkout)',
+        12: 'precheckout (abandono)',
+        13: 'expired (expirado)'
+    };
+    return descriptions[statusEnum] || 'unknown';
+}
+
+// Instâncias Evolution
 const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'D11', 'D12'];
 
-// ============ ARMAZENAMENTO EM MEMÓRIA (MANTIDO IGUAL) ============
+// ============ ARMAZENAMENTO EM MEMÓRIA ============
 let conversations = new Map();
 let phoneIndex = new Map();
 let stickyInstances = new Map();
@@ -57,7 +78,7 @@ let logs = [];
 let funis = new Map();
 let lastSuccessfulInstanceIndex = -1;
 
-// ============ FUNIS PADRÃO (MANTIDO IGUAL) ============
+// ============ FUNIS PADRÃO ============
 const defaultFunnels = {
     'CS_APROVADA': {
         id: 'CS_APROVADA',
@@ -225,7 +246,7 @@ const defaultFunnels = {
     }
 };
 
-// ============ SISTEMA DE LOCK (MANTIDO IGUAL) ============
+// ============ SISTEMA DE LOCK ============
 async function acquireWebhookLock(phoneKey, timeout = 10000) {
     const startTime = Date.now();
     
@@ -247,7 +268,7 @@ function releaseWebhookLock(phoneKey) {
     addLog('WEBHOOK_LOCK_RELEASED', `Lock webhook liberado para ${phoneKey}`);
 }
 
-// ============ PERSISTÊNCIA (MANTIDO IGUAL) ============
+// ============ PERSISTÊNCIA ============
 async function ensureDataDir() {
     try {
         await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
@@ -350,11 +371,11 @@ setInterval(async () => {
 
 Object.values(defaultFunnels).forEach(funnel => funis.set(funnel.id, funnel));
 
-// ============ MIDDLEWARES (MANTIDO IGUAL) ============
+// ============ MIDDLEWARES ============
 app.use(express.json());
 app.use(express.static('public'));
 
-// ============ FUNÇÕES AUXILIARES (MANTIDO IGUAL) ============
+// ============ FUNÇÕES AUXILIARES ============
 function extractPhoneKey(phone) {
     if (!phone) return '';
     const cleaned = phone.replace(/\D/g, '');
@@ -425,7 +446,7 @@ function addLog(type, message, data = null) {
     console.log('[' + log.timestamp.toISOString() + '] ' + type + ': ' + message);
 }
 
-// ============ EVOLUTION API (MANTIDO IGUAL) ============
+// ============ EVOLUTION API ============
 async function sendToEvolution(instanceName, endpoint, payload) {
     const url = EVOLUTION_BASE_URL + endpoint + '/' + instanceName;
     try {
@@ -544,7 +565,7 @@ async function sendAudio(remoteJid, audioUrl, instanceName) {
     }
 }
 
-// ============ ENVIO COM RETRY (MANTIDO IGUAL) ============
+// ============ ENVIO COM RETRY ============
 async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFirstMessage = false) {
     let instancesToTry = [...INSTANCES];
     const stickyInstance = stickyInstances.get(phoneKey);
@@ -605,7 +626,7 @@ async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFir
     return { success: false, error: lastError };
 }
 
-// ============ ORQUESTRAÇÃO (MANTIDO IGUAL) ============
+// ============ ORQUESTRAÇÃO ============
 
 async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, amount) {
     const conversation = {
@@ -828,7 +849,7 @@ async function advanceConversation(phoneKey, replyText, reason) {
 
 // ============ WEBHOOKS ============
 
-// WEBHOOK KIRVANO (MANTIDO EXATAMENTE IGUAL AO SEU CÓDIGO ATUAL)
+// WEBHOOK KIRVANO
 app.post('/webhook/kirvano', async (req, res) => {
     try {
         const data = req.body;
@@ -850,7 +871,6 @@ app.post('/webhook/kirvano', async (req, res) => {
         const remoteJid = phoneToRemoteJid(customerPhone);
         registerPhone(customerPhone, phoneKey);
         
-        // ✅ MANTIDO IGUAL AO SEU CÓDIGO: usa .id
         const productId = data.product_id || data.products?.[0]?.id;
         const productType = PRODUCT_MAPPING[productId] || 'CS';
         
@@ -896,10 +916,35 @@ app.post('/webhook/kirvano', async (req, res) => {
     }
 });
 
-// ✨ WEBHOOK PERFECTPAY (NOVO - ÚNICA ADIÇÃO!)
+// ✨ WEBHOOK PERFECTPAY COM DEBUG ULTRA DETALHADO
 app.post('/webhook/perfectpay', async (req, res) => {
     try {
+        addLog('PERFECTPAY_WEBHOOK_RECEIVED', '🎯 Webhook PerfectPay RECEBIDO!', {
+            timestamp: new Date().toISOString(),
+            bodySize: JSON.stringify(req.body).length,
+            hasBody: !!req.body
+        });
+        
+        addLog('PERFECTPAY_RAW_BODY', 'Body completo do webhook', {
+            rawBody: JSON.stringify(req.body, null, 2)
+        });
+        
         const data = req.body;
+        
+        addLog('PERFECTPAY_MAIN_FIELDS', 'Campos principais extraídos', {
+            hasCode: !!data.code,
+            code: data.code,
+            hasSaleStatusEnum: !!data.sale_status_enum,
+            saleStatusEnum: data.sale_status_enum,
+            hasProduct: !!data.product,
+            productCode: data.product?.code,
+            hasPlan: !!data.plan,
+            planCode: data.plan?.code,
+            hasCustomer: !!data.customer,
+            customerFullName: data.customer?.full_name,
+            hasPaymentTypeEnum: !!data.payment_type_enum,
+            paymentTypeEnum: data.payment_type_enum
+        });
         
         const statusEnum = parseInt(data.sale_status_enum);
         const saleCode = data.code;
@@ -913,39 +958,123 @@ app.post('/webhook/perfectpay', async (req, res) => {
         const totalPrice = 'R$ ' + (saleAmount / 100).toFixed(2).replace('.', ',');
         const paymentType = parseInt(data.payment_type_enum || 0);
         
+        addLog('PERFECTPAY_PROCESSED_DATA', 'Dados após processamento', {
+            statusEnum,
+            saleCode,
+            productCode,
+            planCode,
+            customerName,
+            phoneAreaCode,
+            phoneNumber,
+            customerPhone,
+            saleAmount,
+            totalPrice,
+            paymentType
+        });
+        
+        addLog('PERFECTPAY_PHONE_VALIDATION_START', 'Iniciando validação do telefone', {
+            customerPhone,
+            phoneLength: customerPhone.length
+        });
+        
         const phoneKey = extractPhoneKey(customerPhone);
+        
+        addLog('PERFECTPAY_PHONE_EXTRACTED', 'Telefone extraído', {
+            customerPhone,
+            phoneKey,
+            phoneKeyLength: phoneKey?.length,
+            isValid: phoneKey && phoneKey.length === 8
+        });
+        
         if (!phoneKey || phoneKey.length !== 8) {
-            addLog('PERFECTPAY_INVALID_PHONE', `Telefone inválido: ${customerPhone}`);
-            return res.json({ success: false, message: 'Telefone inválido' });
+            addLog('PERFECTPAY_INVALID_PHONE', '❌ TELEFONE INVÁLIDO!', {
+                customerPhone,
+                phoneAreaCode,
+                phoneNumber,
+                phoneKey,
+                phoneKeyLength: phoneKey?.length,
+                expectedLength: 8
+            });
+            return res.json({ success: false, message: 'Telefone inválido', debug: { customerPhone, phoneKey } });
         }
+        
+        addLog('PERFECTPAY_PHONE_VALID', '✅ Telefone válido!', { phoneKey });
         
         const remoteJid = phoneToRemoteJid(customerPhone);
         registerPhone(customerPhone, phoneKey);
         
+        addLog('PERFECTPAY_PHONE_REGISTERED', 'Telefone registrado', {
+            phoneKey,
+            remoteJid
+        });
+        
+        addLog('PERFECTPAY_PRODUCT_IDENTIFICATION', 'Identificando produto', {
+            productCode,
+            planCode,
+            availablePlans: Object.keys(PERFECTPAY_PLANS),
+            availableProducts: Object.keys(PERFECTPAY_PRODUCTS)
+        });
+        
         const productType = identifyPerfectPayProduct(productCode, planCode);
         
-        addLog('PERFECTPAY_WEBHOOK', `Status ${statusEnum} - ${customerName}`, { 
+        addLog('PERFECTPAY_PRODUCT_IDENTIFIED', '✅ Produto identificado', {
+            productCode,
+            planCode,
+            productType,
+            usedPlan: PERFECTPAY_PLANS[planCode] ? true : false,
+            usedProduct: PERFECTPAY_PRODUCTS[productCode] ? true : false
+        });
+        
+        addLog('PERFECTPAY_STATUS_ANALYSIS', 'Analisando status do webhook', {
+            statusEnum,
+            statusEnumType: typeof statusEnum,
+            isStatus1: statusEnum === 1,
+            isStatus2: statusEnum === 2,
+            paymentType,
+            paymentTypeType: typeof paymentType,
+            isBoleto: paymentType === 2
+        });
+        
+        addLog('PERFECTPAY_WEBHOOK_STATUS', `Status ${statusEnum} processando`, { 
             saleCode, 
             phoneKey, 
             productType,
             productCode,
             planCode,
-            totalPrice
+            totalPrice,
+            statusEnum,
+            paymentType,
+            customerName
         });
         
         if (statusEnum === 2) {
+            addLog('PERFECTPAY_STATUS_2_DETECTED', '✅ STATUS 2 - APROVADO DETECTADO!', { 
+                phoneKey, 
+                saleCode,
+                productType 
+            });
+            
             const existingConv = conversations.get(phoneKey);
             
+            addLog('PERFECTPAY_CHECK_EXISTING_CONV', 'Verificando conversa existente', {
+                phoneKey,
+                hasExistingConv: !!existingConv,
+                existingFunnelId: existingConv?.funnelId,
+                expectedPixFunnelId: productType + '_PIX',
+                isPixFunnel: existingConv?.funnelId === productType + '_PIX'
+            });
+            
             if (existingConv && existingConv.funnelId === productType + '_PIX') {
-                addLog('PERFECTPAY_PIX_TO_APPROVED', `Cliente pagou PIX/Boleto`, { 
+                addLog('PERFECTPAY_PIX_TO_APPROVED', '🔄 Transferindo PIX → APROVADA', { 
                     phoneKey, 
                     saleCode, 
                     productType,
                     plan: planCode 
                 });
                 await transferPixToApproved(phoneKey, remoteJid, saleCode, customerName, productType, totalPrice);
+                addLog('PERFECTPAY_PIX_TO_APPROVED_DONE', '✅ Transferência concluída', { phoneKey });
             } else {
-                addLog('PERFECTPAY_DIRECT_APPROVED', `Pagamento aprovado direto`, { 
+                addLog('PERFECTPAY_DIRECT_APPROVED', '🚀 Iniciando funil APROVADA direto', { 
                     phoneKey, 
                     saleCode, 
                     productType,
@@ -956,21 +1085,35 @@ app.post('/webhook/perfectpay', async (req, res) => {
                 if (pixTimeout) {
                     clearTimeout(pixTimeout.timeout);
                     pixTimeouts.delete(phoneKey);
+                    addLog('PERFECTPAY_PIX_TIMEOUT_CLEARED', 'Timeout PIX cancelado', { phoneKey });
                 }
                 
                 await startFunnel(phoneKey, remoteJid, productType + '_APROVADA', saleCode, customerName, productType, totalPrice);
-            }
-        }
-        else if (statusEnum === 1) {
-            if (paymentType === 2) {
-                addLog('PERFECTPAY_BOLETO_GENERATED', `Boleto gerado (ignorado)`, { 
-                    phoneKey, 
-                    saleCode 
-                });
-                return res.json({ success: true, message: 'Boleto ignorado' });
+                addLog('PERFECTPAY_DIRECT_APPROVED_DONE', '✅ Funil APROVADA iniciado', { phoneKey });
             }
             
-            addLog('PERFECTPAY_PIX_GENERATED', `PIX gerado, aguardando 7min`, { 
+            res.json({ success: true, phoneKey, productType, action: 'approved' });
+            return;
+        }
+        
+        else if (statusEnum === 1) {
+            addLog('PERFECTPAY_STATUS_1_DETECTED', '⏳ STATUS 1 - PENDENTE DETECTADO!', { 
+                phoneKey, 
+                saleCode,
+                paymentType,
+                isBoleto: paymentType === 2
+            });
+            
+            if (paymentType === 2) {
+                addLog('PERFECTPAY_BOLETO_IGNORED', '📄 Boleto detectado - IGNORANDO', { 
+                    phoneKey, 
+                    saleCode,
+                    reason: 'Sistema só processa PIX'
+                });
+                return res.json({ success: true, message: 'Boleto ignorado', action: 'boleto_ignored' });
+            }
+            
+            addLog('PERFECTPAY_PIX_DETECTED', '💰 PIX PENDENTE DETECTADO!', { 
                 phoneKey, 
                 saleCode, 
                 productType,
@@ -978,23 +1121,66 @@ app.post('/webhook/perfectpay', async (req, res) => {
             });
             
             const existingConv = conversations.get(phoneKey);
+            
+            addLog('PERFECTPAY_CHECK_DUPLICATE', 'Verificando duplicação', {
+                phoneKey,
+                hasExistingConv: !!existingConv,
+                isCanceled: existingConv?.canceled
+            });
+            
             if (existingConv && !existingConv.canceled) {
-                addLog('PERFECTPAY_PIX_DUPLICATE', `Conversa já existe`, { phoneKey });
-                return res.json({ success: true, message: 'Conversa já existe' });
+                addLog('PERFECTPAY_PIX_DUPLICATE', '⚠️ Conversa já existe - IGNORANDO', { 
+                    phoneKey,
+                    existingFunnelId: existingConv.funnelId,
+                    existingOrderCode: existingConv.orderCode
+                });
+                return res.json({ success: true, message: 'Conversa já existe', action: 'duplicate_ignored' });
             }
             
+            addLog('PERFECTPAY_CREATING_PIX_WAITING', '🔄 Criando conversa PIX aguardando...', {
+                phoneKey,
+                saleCode,
+                productType,
+                customerName,
+                totalPrice
+            });
+            
             await createPixWaitingConversation(phoneKey, remoteJid, saleCode, customerName, productType, totalPrice);
+            
+            addLog('PERFECTPAY_PIX_WAITING_CREATED', '✅ PIX aguardando criado com sucesso!', {
+                phoneKey,
+                saleCode,
+                funnelId: productType + '_PIX',
+                timeout: '7 minutos'
+            });
+            
+            res.json({ success: true, phoneKey, productType, action: 'pix_waiting_created' });
+            return;
         }
         
-        res.json({ success: true, phoneKey, productType });
+        else {
+            addLog('PERFECTPAY_STATUS_OTHER', `ℹ️ Status ${statusEnum} - Outros`, { 
+                phoneKey, 
+                saleCode,
+                statusEnum,
+                statusDescription: getStatusDescription(statusEnum)
+            });
+            
+            res.json({ success: true, phoneKey, productType, action: 'status_' + statusEnum });
+            return;
+        }
         
     } catch (error) {
-        addLog('PERFECTPAY_ERROR', error.message, { stack: error.stack });
+        addLog('PERFECTPAY_ERROR', '❌ ERRO CRÍTICO no webhook!', { 
+            errorMessage: error.message,
+            errorStack: error.stack,
+            bodyReceived: JSON.stringify(req.body)
+        });
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// WEBHOOK EVOLUTION (MANTIDO EXATAMENTE IGUAL)
+// WEBHOOK EVOLUTION
 app.post('/webhook/evolution', async (req, res) => {
     try {
         const data = req.body;
@@ -1053,7 +1239,7 @@ app.post('/webhook/evolution', async (req, res) => {
     }
 });
 
-// ============ API ENDPOINTS (MANTIDO TUDO IGUAL) ============
+// ============ API ENDPOINTS ============
 
 app.get('/api/dashboard', (req, res) => {
     const instanceUsage = {};
@@ -1116,6 +1302,35 @@ app.post('/api/funnels', (req, res) => {
     saveFunnelsToFile();
     
     res.json({ success: true, message: 'Funil salvo', data: funnel });
+});
+
+// ✨ NOVO: Endpoint para mover passos
+app.post('/api/funnels/:funnelId/move-step', (req, res) => {
+    const { funnelId } = req.params;
+    const { fromIndex, direction } = req.body;
+    
+    const funnel = funis.get(funnelId);
+    if (!funnel) {
+        return res.status(404).json({ success: false, error: 'Funil não encontrado' });
+    }
+    
+    const toIndex = direction === 'up' ? fromIndex - 1 : fromIndex + 1;
+    
+    if (toIndex < 0 || toIndex >= funnel.steps.length) {
+        return res.status(400).json({ success: false, error: 'Movimento inválido' });
+    }
+    
+    // Trocar posições
+    const temp = funnel.steps[fromIndex];
+    funnel.steps[fromIndex] = funnel.steps[toIndex];
+    funnel.steps[toIndex] = temp;
+    
+    funis.set(funnelId, funnel);
+    saveFunnelsToFile();
+    
+    addLog('STEP_MOVED', `Passo ${fromIndex} movido para ${toIndex}`, { funnelId, direction });
+    
+    res.json({ success: true, message: 'Passo movido', data: funnel });
 });
 
 app.get('/api/funnels/export', (req, res) => {
@@ -1296,7 +1511,7 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO + PERFECTPAY SYSTEM V4.2 - CS + FAB');
+    console.log('🚀 KIRVANO + PERFECTPAY V4.3 FINAL - CS + FAB');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
@@ -1305,22 +1520,25 @@ app.listen(PORT, async () => {
     console.log('✅ RECURSOS IMPLEMENTADOS:');
     console.log('  1. Suporte a CS e FAB (4 funis)');
     console.log('  2. Integração KIRVANO + PERFECTPAY ✨');
-    console.log('  3. Áudio PTT Base64 (100% garantido) 🎤');
-    console.log('  4. Delays respeitados corretamente ⏰');
-    console.log('  5. Lock APENAS no webhook (sem deadlock)');
-    console.log('  6. PIX aguarda 7min antes de enviar');
-    console.log('  7. Transferência PIX→APROVADA inteligente');
-    console.log('  8. Sticky instance mantida sempre');
-    console.log('  9. Retry automático 3x por instância');
-    console.log('  10. Fallback em 3 níveis para áudio');
+    console.log('  3. Webhook PerfectPay com DEBUG completo 🔍');
+    console.log('  4. Sistema de SETAS para mover passos ↕️ ✨');
+    console.log('  5. Áudio PTT Base64 (100% garantido) 🎤');
+    console.log('  6. Delays respeitados corretamente ⏰');
+    console.log('  7. Lock APENAS no webhook (sem deadlock)');
+    console.log('  8. PIX aguarda 7min antes de enviar');
+    console.log('  9. Transferência PIX→APROVADA inteligente');
+    console.log('  10. Sticky instance mantida sempre');
+    console.log('  11. Retry automático 3x por instância');
+    console.log('  12. Fallback em 3 níveis para áudio');
     console.log('');
     console.log('📡 Endpoints:');
-    console.log('  POST /webhook/kirvano       - Eventos Kirvano');
-    console.log('  POST /webhook/perfectpay    - Eventos PerfectPay ✨');
-    console.log('  POST /webhook/evolution     - Respostas clientes');
-    console.log('  GET  /api/dashboard         - Estatísticas');
-    console.log('  GET  /api/conversations     - Conversas');
-    console.log('  GET  /api/logs              - Logs');
+    console.log('  POST /webhook/kirvano             - Eventos Kirvano');
+    console.log('  POST /webhook/perfectpay          - Eventos PerfectPay ✨');
+    console.log('  POST /webhook/evolution           - Respostas clientes');
+    console.log('  POST /api/funnels/:id/move-step   - Mover passos ↕️ ✨');
+    console.log('  GET  /api/dashboard               - Estatísticas');
+    console.log('  GET  /api/conversations           - Conversas');
+    console.log('  GET  /api/logs                    - Logs');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('='.repeat(70));
