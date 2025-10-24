@@ -1287,50 +1287,166 @@ app.get('/api/funnels', (req, res) => {
 });
 
 app.post('/api/funnels', (req, res) => {
-    const funnel = req.body;
-    
-    if (!funnel.id || !funnel.name || !funnel.steps) {
-        return res.status(400).json({ success: false, error: 'Campos obrigatórios faltando' });
+    try {
+        const funnel = req.body;
+        
+        // Validação completa
+        if (!funnel.id || !funnel.name || !funnel.steps) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Campos obrigatórios: id, name, steps' 
+            });
+        }
+        
+        if (!funnel.id.startsWith('CS_') && !funnel.id.startsWith('FAB_')) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Apenas funis CS e FAB são permitidos' 
+            });
+        }
+        
+        // Garantir que steps é array válido
+        if (!Array.isArray(funnel.steps)) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Steps deve ser um array' 
+            });
+        }
+        
+        // Garantir que cada passo tem um ID
+        funnel.steps.forEach((step, idx) => {
+            if (step && !step.id) {
+                step.id = 'step_' + Date.now() + '_' + idx;
+            }
+        });
+        
+        // Salvar funil
+        funis.set(funnel.id, funnel);
+        addLog('FUNNEL_SAVED', 'Funil salvo: ' + funnel.id, {
+            stepCount: funnel.steps.length
+        });
+        
+        // Persistir em arquivo
+        saveFunnelsToFile();
+        
+        // Retornar funil completo
+        res.json({ 
+            success: true, 
+            message: 'Funil salvo com sucesso', 
+            data: funnel 
+        });
+        
+    } catch (error) {
+        console.error('Erro ao salvar funil:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Erro ao salvar funil: ' + error.message 
+        });
     }
-    
-    if (!funnel.id.startsWith('CS_') && !funnel.id.startsWith('FAB_')) {
-        return res.status(400).json({ success: false, error: 'Apenas funis CS e FAB permitidos' });
-    }
-    
-    funis.set(funnel.id, funnel);
-    addLog('FUNNEL_SAVED', 'Funil salvo: ' + funnel.id);
-    saveFunnelsToFile();
-    
-    res.json({ success: true, message: 'Funil salvo', data: funnel });
 });
 
-// ✨ NOVO: Endpoint para mover passos
+// ✨ NOVO: Endpoint para mover passos (CORRIGIDO)
 app.post('/api/funnels/:funnelId/move-step', (req, res) => {
-    const { funnelId } = req.params;
-    const { fromIndex, direction } = req.body;
-    
-    const funnel = funis.get(funnelId);
-    if (!funnel) {
-        return res.status(404).json({ success: false, error: 'Funil não encontrado' });
+    try {
+        const { funnelId } = req.params;
+        const { fromIndex, direction } = req.body;
+        
+        // Validar entrada
+        if (fromIndex === undefined || fromIndex === null || !direction) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Parâmetros obrigatórios: fromIndex e direction' 
+            });
+        }
+        
+        // Buscar funil
+        const funnel = funis.get(funnelId);
+        if (!funnel) {
+            return res.status(404).json({ 
+                success: false, 
+                error: `Funil ${funnelId} não encontrado` 
+            });
+        }
+        
+        // Garantir que steps existe e é array válido
+        if (!funnel.steps || !Array.isArray(funnel.steps) || funnel.steps.length === 0) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Funil não possui passos válidos' 
+            });
+        }
+        
+        // Converter fromIndex para número
+        const from = parseInt(fromIndex);
+        
+        // Validar índice
+        if (isNaN(from) || from < 0 || from >= funnel.steps.length) {
+            return res.status(400).json({ 
+                success: false, 
+                error: `Índice ${from} fora do intervalo (0-${funnel.steps.length - 1})` 
+            });
+        }
+        
+        // Calcular índice de destino
+        const toIndex = direction === 'up' ? from - 1 : from + 1;
+        
+        // Validar movimento
+        if (toIndex < 0 || toIndex >= funnel.steps.length) {
+            return res.status(400).json({ 
+                success: false, 
+                error: `Não é possível mover o passo ${from} para ${direction}` 
+            });
+        }
+        
+        // Fazer cópia profunda do funil para evitar problemas
+        const updatedFunnel = JSON.parse(JSON.stringify(funnel));
+        
+        // Verificar se os passos existem
+        if (!updatedFunnel.steps[from] || !updatedFunnel.steps[toIndex]) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Passos inválidos para troca' 
+            });
+        }
+        
+        // Trocar posições
+        const temp = updatedFunnel.steps[from];
+        updatedFunnel.steps[from] = updatedFunnel.steps[toIndex];
+        updatedFunnel.steps[toIndex] = temp;
+        
+        // Garantir IDs únicos para cada passo
+        updatedFunnel.steps.forEach((step, idx) => {
+            if (step && !step.id) {
+                step.id = 'step_' + Date.now() + '_' + idx;
+            }
+        });
+        
+        // Salvar funil atualizado
+        funis.set(funnelId, updatedFunnel);
+        
+        // Salvar em arquivo
+        saveFunnelsToFile();
+        
+        addLog('STEP_MOVED', `Passo ${from} movido para ${toIndex}`, { 
+            funnelId, 
+            direction,
+            totalSteps: updatedFunnel.steps.length 
+        });
+        
+        // Retornar funil completo atualizado
+        res.json({ 
+            success: true, 
+            message: `Passo movido de ${from} para ${toIndex}`,
+            data: updatedFunnel 
+        });
+        
+    } catch (error) {
+        console.error('Erro ao mover passo:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Erro interno: ' + error.message 
+        });
     }
-    
-    const toIndex = direction === 'up' ? fromIndex - 1 : fromIndex + 1;
-    
-    if (toIndex < 0 || toIndex >= funnel.steps.length) {
-        return res.status(400).json({ success: false, error: 'Movimento inválido' });
-    }
-    
-    // Trocar posições
-    const temp = funnel.steps[fromIndex];
-    funnel.steps[fromIndex] = funnel.steps[toIndex];
-    funnel.steps[toIndex] = temp;
-    
-    funis.set(funnelId, funnel);
-    saveFunnelsToFile();
-    
-    addLog('STEP_MOVED', `Passo ${fromIndex} movido para ${toIndex}`, { funnelId, direction });
-    
-    res.json({ success: true, message: 'Passo movido', data: funnel });
 });
 
 app.get('/api/funnels/export', (req, res) => {
