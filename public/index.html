@@ -623,7 +623,9 @@
                                 <button class="btn btn-import" onclick="importFunnels()">
                                     📤 Import Funis
                                 </button>
-                                <button class="btn" onclick="saveFunnel()">Salvar Funil</button>
+                                <button class="btn" id="saveFunnelBtn" onclick="saveFunnel()">
+                                    <span id="saveBtnText">Salvar Funil</span>
+                                </button>
                             </div>
                         </div>
                         
@@ -749,7 +751,31 @@
             
             currentFunnelData.steps.push(newStep);
             funnelsData[currentFunnelData.id] = currentFunnelData;
+            
+            // Resetar estado de edição
+            editingStepIndex = -1;
+            
+            // Marcar que há mudanças não salvas
+            window.hasUnsavedChanges = true;
+            updateSaveButton();
+            
             renderSteps();
+            
+            // NÃO salvar automaticamente - deixar o usuário adicionar vários
+            console.log('Novo passo adicionado. Use "Salvar Funil" quando terminar.');
+        }
+
+        // Função para atualizar visual do botão salvar
+        function updateSaveButton() {
+            const btn = document.getElementById('saveFunnelBtn');
+            const btnText = document.getElementById('saveBtnText');
+            if (window.hasUnsavedChanges) {
+                btn.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
+                btnText.textContent = '⚠️ Salvar Funil (há mudanças)';
+            } else {
+                btn.style.background = 'linear-gradient(135deg, #667eea, #764ba2)';
+                btnText.textContent = 'Salvar Funil';
+            }
         }
 
         function removeStep(index) {
@@ -766,6 +792,44 @@
             }
             
             renderSteps();
+            
+            // Salvar após remover (importante para manter índices corretos)
+            console.log('Salvando após remover passo...');
+            saveFunnelSilently();
+        }
+
+        // Nova função para salvar silenciosamente (sem alerts)
+        async function saveFunnelSilently() {
+            if (!currentFunnelData) return;
+            
+            // Se não tem passos ou todos estão vazios, não precisa salvar
+            if (!currentFunnelData.steps || currentFunnelData.steps.length === 0) {
+                console.log('Nenhum passo para salvar');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/funnels', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentFunnelData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    // Atualizar dados locais silenciosamente
+                    currentFunnelData = result.data;
+                    funnelsData[currentFunnelData.id] = result.data;
+                    window.hasUnsavedChanges = false;
+                    updateSaveButton();
+                    console.log('✅ Sincronizado com servidor');
+                } else {
+                    console.error('Erro na sincronização:', result.error);
+                }
+            } catch (error) {
+                console.error('Erro na sincronização:', error);
+            }
         }
 
         function editStep(index) {
@@ -825,7 +889,7 @@
             return names[type] || 'Mensagem';
         }
 
-        // ✅ FUNÇÃO CORRIGIDA: Mover passos
+        // ✅ FUNÇÃO CORRIGIDA: Mover passos com sincronização inteligente
         async function moveStep(index, direction) {
             if (!currentFunnelData || !currentFunnelData.steps) {
                 console.error('Funil ou passos não encontrados');
@@ -837,6 +901,14 @@
             if (toIndex < 0 || toIndex >= currentFunnelData.steps.length) {
                 console.log('Movimento inválido - fora dos limites');
                 return;
+            }
+            
+            // Se há mudanças não salvas, sincronizar primeiro
+            if (window.hasUnsavedChanges) {
+                console.log('Sincronizando mudanças não salvas antes de mover...');
+                await saveFunnelSilently();
+                // Pequeno delay para garantir que salvou
+                await new Promise(resolve => setTimeout(resolve, 200));
             }
             
             try {
@@ -855,12 +927,42 @@
                     
                     // Reset editing state
                     editingStepIndex = -1;
+                    window.hasUnsavedChanges = false;
                     
                     renderSteps();
                     console.log('✅ Passo movido com sucesso!');
                 } else {
-                    alert('❌ Erro ao mover passo: ' + (result.error || 'Erro desconhecido'));
-                    console.error('Erro no servidor:', result);
+                    // Se o erro for de índice fora do intervalo, forçar sincronização
+                    if (result.error && result.error.includes('fora do intervalo')) {
+                        console.log('Erro de sincronização detectado. Forçando sincronização...');
+                        
+                        // Forçar salvamento completo
+                        await saveFunnelSilently();
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                        
+                        // Tentar novamente após sincronização forçada
+                        const retryResponse = await fetch(`/api/funnels/${currentFunnelData.id}/move-step`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ fromIndex: index, direction })
+                        });
+                        
+                        const retryResult = await retryResponse.json();
+                        if (retryResult.success && retryResult.data) {
+                            currentFunnelData = retryResult.data;
+                            funnelsData[currentFunnelData.id] = retryResult.data;
+                            editingStepIndex = -1;
+                            window.hasUnsavedChanges = false;
+                            renderSteps();
+                            console.log('✅ Passo movido após sincronização forçada!');
+                        } else {
+                            alert('❌ Erro ao mover passo. Por favor, salve o funil primeiro.');
+                            console.error('Erro após retry:', retryResult);
+                        }
+                    } else {
+                        alert('❌ Erro ao mover passo: ' + (result.error || 'Erro desconhecido'));
+                        console.error('Erro no servidor:', result);
+                    }
                 }
             } catch (error) {
                 alert('❌ Erro de conexão: ' + error.message);
@@ -1073,6 +1175,8 @@
                 if (result.success) {
                     alert('✅ Funil salvo com sucesso!');
                     editingStepIndex = -1;
+                    window.hasUnsavedChanges = false;
+                    updateSaveButton();
                     
                     // Atualizar dados locais com resposta do servidor
                     if (result.data) {
@@ -1300,6 +1404,9 @@
         document.addEventListener('DOMContentLoaded', async function() {
             console.log('🚀 Iniciando Kirvano Editor...');
             
+            // Inicializar estado
+            window.hasUnsavedChanges = false;
+            
             // Carregar funis do servidor
             await loadFunnelsFromServer();
             
@@ -1308,6 +1415,11 @@
             
             // Carregar dashboard
             loadDashboard();
+            
+            // Atualizar botão de salvar
+            if (typeof updateSaveButton === 'function') {
+                updateSaveButton();
+            }
             
             // Atualizar periodicamente
             setInterval(() => {
