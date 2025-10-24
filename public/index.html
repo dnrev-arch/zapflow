@@ -280,7 +280,6 @@
             background: #dc2626;
         }
 
-        /* ✅ NOVO: CSS para botões desabilitados */
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
@@ -726,41 +725,76 @@
         }
 
         function addBlock(type) {
-            if (!currentFunnelData) return;
+            if (!currentFunnelData) {
+                alert('Selecione um funil primeiro');
+                return;
+            }
             
             const newStep = {
-                id: 'step_' + (currentFunnelData.steps.length + 1),
+                id: 'step_' + Date.now(),
                 type: type,
                 text: '',
                 mediaUrl: '',
+                delaySeconds: type === 'delay' ? 10 : null,
+                typingSeconds: type === 'typing' ? 3 : null,
+                delayBefore: 0,
+                showTyping: false,
                 waitForReply: false
             };
             
+            // Garantir que steps existe
+            if (!currentFunnelData.steps) {
+                currentFunnelData.steps = [];
+            }
+            
             currentFunnelData.steps.push(newStep);
+            funnelsData[currentFunnelData.id] = currentFunnelData;
             renderSteps();
         }
 
         function removeStep(index) {
-            if (!currentFunnelData) return;
+            if (!currentFunnelData || !currentFunnelData.steps) return;
+            
             currentFunnelData.steps.splice(index, 1);
+            funnelsData[currentFunnelData.id] = currentFunnelData;
+            
+            // Reset editing if removing the edited step
+            if (editingStepIndex === index) {
+                editingStepIndex = -1;
+            } else if (editingStepIndex > index) {
+                editingStepIndex--;
+            }
+            
             renderSteps();
         }
 
         function editStep(index) {
-            editingStepIndex = index;
+            if (editingStepIndex === index) {
+                // Salvar edição
+                editingStepIndex = -1;
+            } else {
+                // Começar edição
+                editingStepIndex = index;
+            }
             renderSteps();
         }
 
         function updateStep(index, field, value) {
-            if (!currentFunnelData.steps[index]) return;
-            
-            if (field === 'waitForReply') {
-                currentFunnelData.steps[index][field] = value;
-            } else {
-                currentFunnelData.steps[index][field] = value;
+            if (!currentFunnelData || !currentFunnelData.steps || !currentFunnelData.steps[index]) {
+                console.error('Passo não encontrado para atualizar');
+                return;
             }
             
-            renderSteps();
+            // Converter valores numéricos quando necessário
+            if (field === 'delaySeconds' || field === 'typingSeconds' || field === 'delayBefore') {
+                value = value ? parseInt(value) : 0;
+            }
+            
+            currentFunnelData.steps[index][field] = value;
+            funnelsData[currentFunnelData.id] = currentFunnelData;
+            
+            // Não renderizar a cada mudança para evitar perder foco
+            // renderSteps();
         }
 
         function getStepIcon(type) {
@@ -791,17 +825,17 @@
             return names[type] || 'Mensagem';
         }
 
-        // ✅ NOVA FUNÇÃO: Mover passos
+        // ✅ FUNÇÃO CORRIGIDA: Mover passos
         async function moveStep(index, direction) {
-            if (!currentFunnelData) {
-                alert('❌ Nenhum funil selecionado!');
+            if (!currentFunnelData || !currentFunnelData.steps) {
+                console.error('Funil ou passos não encontrados');
                 return;
             }
             
             const toIndex = direction === 'up' ? index - 1 : index + 1;
             
             if (toIndex < 0 || toIndex >= currentFunnelData.steps.length) {
-                alert('❌ Não é possível mover nesta direção!');
+                console.log('Movimento inválido - fora dos limites');
                 return;
             }
             
@@ -814,23 +848,30 @@
                 
                 const result = await response.json();
                 
-                if (result.success) {
+                if (result.success && result.data) {
+                    // Atualizar AMBOS: currentFunnelData E funnelsData
                     currentFunnelData = result.data;
+                    funnelsData[currentFunnelData.id] = result.data;
+                    
+                    // Reset editing state
+                    editingStepIndex = -1;
+                    
                     renderSteps();
                     console.log('✅ Passo movido com sucesso!');
                 } else {
-                    alert('❌ Erro: ' + result.error);
+                    alert('❌ Erro ao mover passo: ' + (result.error || 'Erro desconhecido'));
+                    console.error('Erro no servidor:', result);
                 }
             } catch (error) {
-                alert('❌ Erro ao mover: ' + error.message);
-                console.error('Erro:', error);
+                alert('❌ Erro de conexão: ' + error.message);
+                console.error('Erro ao mover passo:', error);
             }
         }
 
         function renderSteps() {
             const container = document.getElementById('stepsContainer');
             
-            if (!currentFunnelData || currentFunnelData.steps.length === 0) {
+            if (!currentFunnelData || !currentFunnelData.steps || currentFunnelData.steps.length === 0) {
                 container.innerHTML = `
                     <div class="empty-workspace">
                         <h3>Funil vazio</h3>
@@ -842,6 +883,11 @@
 
             let html = '';
             currentFunnelData.steps.forEach((step, index) => {
+                if (!step) {
+                    console.error('Passo inválido no índice', index);
+                    return;
+                }
+                
                 const isEditing = editingStepIndex === index;
                 const stepIcon = getStepIcon(step.type);
                 const stepTypeName = getStepTypeName(step.type);
@@ -850,7 +896,6 @@
                     <div class="step-card ${isEditing ? 'editing' : ''}">
                         <div class="step-header">
                             <div style="display: flex; align-items: center; gap: 12px;">
-                                <!-- ✅ BOTÕES DE SETAS À ESQUERDA -->
                                 <div style="display: flex; flex-direction: column; gap: 4px;">
                                     <button class="btn btn-small" 
                                             onclick="moveStep(${index}, 'up')" 
@@ -984,11 +1029,12 @@
                 return;
             }
             
-            if (currentFunnelData.steps.length === 0) {
+            if (!currentFunnelData.steps || currentFunnelData.steps.length === 0) {
                 alert('Adicione pelo menos um passo ao funil');
                 return;
             }
             
+            // Validar passos
             for (let i = 0; i < currentFunnelData.steps.length; i++) {
                 const step = currentFunnelData.steps[i];
                 
@@ -1025,14 +1071,22 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    alert('Funil salvo com sucesso!');
+                    alert('✅ Funil salvo com sucesso!');
                     editingStepIndex = -1;
+                    
+                    // Atualizar dados locais com resposta do servidor
+                    if (result.data) {
+                        currentFunnelData = result.data;
+                        funnelsData[currentFunnelData.id] = result.data;
+                    }
+                    
                     renderSteps();
                 } else {
-                    alert('Erro: ' + result.error);
+                    alert('❌ Erro ao salvar: ' + (result.error || 'Erro desconhecido'));
                 }
             } catch (error) {
-                alert('Erro ao salvar funil: ' + error.message);
+                alert('❌ Erro de conexão: ' + error.message);
+                console.error('Erro ao salvar funil:', error);
             }
         }
 
@@ -1059,7 +1113,7 @@
         function renderEvents(events) {
             const tbody = document.getElementById('eventsTableBody');
             
-            if (events.length === 0) {
+            if (!events || events.length === 0) {
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="9" style="text-align: center; padding: 40px; color: #6b7280;">
@@ -1087,12 +1141,12 @@
 
                 html += `
                     <tr>
-                        <td>${event.customerName}</td>
-                        <td>${event.phone}</td>
-                        <td><code>${event.phoneKey}</code></td>
-                        <td><span class="badge badge-info">${event.productType}</span></td>
-                        <td>${event.funnelId}</td>
-                        <td>${event.stepIndex + 1}</td>
+                        <td>${event.customerName || '-'}</td>
+                        <td>${event.phone || '-'}</td>
+                        <td><code>${event.phoneKey || '-'}</code></td>
+                        <td><span class="badge badge-info">${event.productType || '-'}</span></td>
+                        <td>${event.funnelId || '-'}</td>
+                        <td>${event.stepIndex >= 0 ? event.stepIndex + 1 : '-'}</td>
                         <td>${statusBadge}</td>
                         <td>${event.stickyInstance || '-'}</td>
                         <td>${createdAt}</td>
@@ -1113,6 +1167,7 @@
                     document.getElementById('statsConversations').textContent = stats.active_conversations || 0;
                     document.getElementById('statsPix').textContent = stats.pending_pix || 0;
                     document.getElementById('statsFunnels').textContent = stats.total_funnels || 0;
+                    document.getElementById('statsInstances').textContent = stats.total_instances || 0;
                 }
             } catch (error) {
                 console.error('Erro ao carregar dashboard:', error);
@@ -1214,7 +1269,8 @@
                 const response = await fetch('/api/funnels');
                 const result = await response.json();
                 
-                if (result.success) {
+                if (result.success && result.data) {
+                    // Limpar dados locais
                     Object.keys(funnelsData).forEach(key => {
                         funnelsData[key] = {
                             id: key,
@@ -1223,13 +1279,14 @@
                         };
                     });
                     
+                    // Carregar funis do servidor
                     result.data.forEach(funnel => {
                         if (funnelsData[funnel.id]) {
                             funnelsData[funnel.id] = funnel;
                         }
                     });
                     
-                    console.log('Funis carregados:', Object.keys(funnelsData));
+                    console.log('✅ Funis carregados:', Object.keys(funnelsData).map(k => k + ' (' + funnelsData[k].steps.length + ' passos)').join(', '));
                     return true;
                 }
                 return false;
@@ -1239,18 +1296,28 @@
             }
         }
 
-        document.addEventListener('DOMContentLoaded', function() {
-            loadDashboard();
-            loadFunnelsFromServer().then(() => {
-                loadFunnelEditor();
-            });
+        // Inicialização
+        document.addEventListener('DOMContentLoaded', async function() {
+            console.log('🚀 Iniciando Kirvano Editor...');
             
+            // Carregar funis do servidor
+            await loadFunnelsFromServer();
+            
+            // Carregar funil inicial
+            loadFunnelEditor();
+            
+            // Carregar dashboard
+            loadDashboard();
+            
+            // Atualizar periodicamente
             setInterval(() => {
                 loadDashboard();
                 if (document.getElementById('events').classList.contains('active')) {
                     loadEvents();
                 }
             }, 10000);
+            
+            console.log('✅ Editor pronto!');
         });
     </script>
 </body>
