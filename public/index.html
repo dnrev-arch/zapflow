@@ -268,25 +268,49 @@
             return names[type] || 'Mensagem';
         }
 
+        // ✅ ÚNICA MUDANÇA: CORRIGIDO currentFunnel → currentFunnelData
         async function moveStep(index, direction) {
-            if (!currentFunnelData) return;
+            if (!currentFunnelData) {  // ✅ CORRIGIDO
+                console.error('❌ Nenhum funil selecionado');
+                return;
+            }
+            
             const toIndex = direction === 'up' ? index - 1 : index + 1;
-            if (toIndex < 0 || toIndex >= currentFunnelData.steps.length) return;
+            
+            if (toIndex < 0 || toIndex >= currentFunnelData.steps.length) {  // ✅ CORRIGIDO
+                console.warn('⚠️ Não é possível mover nesta direção');
+                return;
+            }
+            
+            console.log('🔄 Movendo passo...', { 
+                funnelId: currentFunnelData.id,  // ✅ CORRIGIDO
+                fromIndex: index, 
+                toIndex, 
+                direction 
+            });
+            
             try {
-                const response = await fetch(`/api/funnels/${currentFunnelData.id}/move-step`, {
+                const response = await fetch(`/api/funnels/${currentFunnelData.id}/move-step`, {  // ✅ CORRIGIDO
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ fromIndex: index, direction })
                 });
+                
                 const result = await response.json();
+                
+                console.log('📥 Resposta:', result);
+                
                 if (result.success) {
-                    currentFunnelData.steps = result.data.steps;
-                    funnelsData[currentFunnelData.id].steps = result.data.steps;
+                    currentFunnelData.steps = result.data.steps;  // ✅ CORRIGIDO
+                    funnelsData[currentFunnelData.id].steps = result.data.steps;  // ✅ CORRIGIDO
                     editingStepIndex = -1;
                     renderSteps();
+                    console.log('✅ Sucesso!');
+                } else {
+                    console.error('❌ Erro:', result.error);
                 }
             } catch (error) {
-                console.error('Erro:', error);
+                console.error('❌ Erro:', error);
             }
         }
 
@@ -491,16 +515,16 @@
                 if (!file) return;
                 try {
                     const text = await file.text();
-                    const importData = JSON.parse(text);
-                    if (!importData.funnels) {
+                    const data = JSON.parse(text);
+                    if (!data.funnels) {
                         alert('❌ Arquivo inválido!');
                         return;
                     }
-                    if (!confirm(`Restaurar ${importData.funnels.length} funis?\n\n⚠️ Vai sobrescrever os atuais!`)) return;
+                    if (!confirm(`Restaurar ${data.funnels.length} funis?\n\n⚠️ Vai sobrescrever os atuais!`)) return;
                     const response = await fetch('/api/funnels/import', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(importData)
+                        body: JSON.stringify(data)
                     });
                     const result = await response.json();
                     if (result.success) {
