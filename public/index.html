@@ -3,1138 +3,568 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema de Automação WhatsApp v7.0</title>
+    <title>Kirvano V2.0 - Editor de Funis CS + FAB</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            color: #333;
-        }
-        
-        .header {
-            background: rgba(255, 255, 255, 0.98);
-            padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        
-        .header h1 {
-            color: #333;
-            font-size: 24px;
-            margin-bottom: 10px;
-        }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .stat-card {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 15px;
-            border-radius: 10px;
-            text-align: center;
-            animation: fadeIn 0.5s ease-in-out;
-        }
-        
-        .stat-card h3 {
-            font-size: 14px;
-            opacity: 0.9;
-            margin-bottom: 5px;
-        }
-        
-        .stat-card .value {
-            font-size: 28px;
-            font-weight: bold;
-        }
-        
-        .container {
-            max-width: 1400px;
-            margin: 20px auto;
-            padding: 0 20px;
-        }
-        
-        .tabs {
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }
-        
-        .tab-buttons {
-            display: flex;
-            background: #f8f9fa;
-            border-bottom: 2px solid #e9ecef;
-        }
-        
-        .tab-button {
-            flex: 1;
-            padding: 15px;
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 16px;
-            transition: all 0.3s;
-            position: relative;
-        }
-        
-        .tab-button:hover {
-            background: #e9ecef;
-        }
-        
-        .tab-button.active {
-            background: white;
-            color: #667eea;
-            font-weight: bold;
-        }
-        
-        .tab-button.active::after {
-            content: '';
-            position: absolute;
-            bottom: -2px;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: #667eea;
-        }
-        
-        .tab-content {
-            padding: 20px;
-            min-height: 500px;
-        }
-        
-        .tab-panel {
-            display: none;
-        }
-        
-        .tab-panel.active {
-            display: block;
-            animation: fadeIn 0.3s ease-in-out;
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        /* Editor de Funis */
-        .funnel-selector {
-            margin-bottom: 20px;
-        }
-        
-        .funnel-selector select {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 16px;
-        }
-        
-        .block-list {
-            border: 1px solid #ddd;
-            border-radius: 10px;
-            padding: 15px;
-            min-height: 200px;
-        }
-        
-        .block-item {
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 15px;
-            position: relative;
-        }
-        
-        .block-item .block-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        
-        .block-item .block-number {
-            background: #667eea;
-            color: white;
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-        }
-        
-        .block-actions {
-            display: flex;
-            gap: 5px;
-        }
-        
-        .block-actions button {
-            padding: 5px 10px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 12px;
-            transition: all 0.3s;
-        }
-        
-        .btn-edit {
-            background: #28a745;
-            color: white;
-        }
-        
-        .btn-remove {
-            background: #dc3545;
-            color: white;
-        }
-        
-        .btn-move {
-            background: #ffc107;
-            color: #333;
-        }
-        
-        /* Lista de Conversas */
-        .conversations-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        
-        .conversations-table thead {
-            background: #f8f9fa;
-        }
-        
-        .conversations-table th {
-            padding: 12px;
-            text-align: left;
-            font-weight: 600;
-            color: #495057;
-            border-bottom: 2px solid #dee2e6;
-        }
-        
-        .conversations-table td {
-            padding: 12px;
-            border-bottom: 1px solid #dee2e6;
-        }
-        
-        .conversations-table tbody tr:hover {
-            background: #f8f9fa;
-        }
-        
-        .status-badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-            display: inline-block;
-        }
-        
-        .status-aguardando {
-            background: #ffc107;
-            color: #333;
-        }
-        
-        .status-concluido {
-            background: #28a745;
-            color: white;
-        }
-        
-        .status-enviando {
-            background: #007bff;
-            color: white;
-        }
-        
-        .status-cancelado {
-            background: #dc3545;
-            color: white;
-        }
-        
-        .status-pausado {
-            background: #6c757d;
-            color: white;
-        }
-        
-        .action-buttons {
-            display: flex;
-            gap: 5px;
-        }
-        
-        .btn-action {
-            padding: 5px 10px;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 12px;
-            transition: all 0.3s;
-        }
-        
-        .btn-pause {
-            background: #ffc107;
-            color: #333;
-        }
-        
-        .btn-resume {
-            background: #28a745;
-            color: white;
-        }
-        
-        .btn-cancel {
-            background: #dc3545;
-            color: white;
-        }
-        
-        /* Palavras-chave de Cancelamento */
-        .keywords-container {
-            max-width: 800px;
-            margin: 0 auto;
-        }
-        
-        .keywords-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid #dee2e6;
-        }
-        
-        .keywords-count {
-            background: #667eea;
-            color: white;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-weight: bold;
-        }
-        
-        .add-keyword-form {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 30px;
-        }
-        
-        .add-keyword-form input {
-            flex: 1;
-            padding: 12px;
-            border: 2px solid #dee2e6;
-            border-radius: 8px;
-            font-size: 16px;
-        }
-        
-        .add-keyword-form button {
-            padding: 12px 30px;
-            background: #28a745;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: bold;
-            transition: all 0.3s;
-        }
-        
-        .add-keyword-form button:hover {
-            background: #218838;
-            transform: translateY(-2px);
-        }
-        
-        .keywords-list {
-            display: grid;
-            gap: 10px;
-        }
-        
-        .keyword-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 15px 20px;
-            background: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 8px;
-            transition: all 0.3s;
-        }
-        
-        .keyword-item:hover {
-            background: white;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            transform: translateX(5px);
-        }
-        
-        .keyword-text {
-            font-size: 16px;
-            font-weight: 500;
-            color: #333;
-        }
-        
-        .keyword-remove {
-            padding: 8px 15px;
-            background: #dc3545;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: all 0.3s;
-        }
-        
-        .keyword-remove:hover {
-            background: #c82333;
-        }
-        
-        /* Logs */
-        .logs-container {
-            max-height: 600px;
-            overflow-y: auto;
-            border: 1px solid #dee2e6;
-            border-radius: 10px;
-            padding: 15px;
-            background: #f8f9fa;
-        }
-        
-        .log-item {
-            padding: 10px;
-            margin-bottom: 10px;
-            background: white;
-            border-left: 4px solid #667eea;
-            border-radius: 5px;
-        }
-        
-        .log-timestamp {
-            font-size: 12px;
-            color: #6c757d;
-            margin-bottom: 5px;
-        }
-        
-        .log-type {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 3px;
-            font-size: 11px;
-            font-weight: bold;
-            margin-right: 10px;
-        }
-        
-        .log-type.INFO { background: #17a2b8; color: white; }
-        .log-type.SUCCESS { background: #28a745; color: white; }
-        .log-type.ERROR { background: #dc3545; color: white; }
-        .log-type.WARNING { background: #ffc107; color: #333; }
-        
-        .log-message {
-            font-size: 14px;
-            color: #333;
-        }
-        
-        /* Botões de Ação */
-        .action-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            padding: 15px;
-            background: #f8f9fa;
-            border-radius: 10px;
-        }
-        
-        .btn-primary {
-            padding: 10px 20px;
-            background: #667eea;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            font-weight: bold;
-            transition: all 0.3s;
-        }
-        
-        .btn-primary:hover {
-            background: #5a67d8;
-            transform: translateY(-2px);
-        }
-        
-        .info-box {
-            padding: 15px;
-            background: #d1ecf1;
-            border: 1px solid #bee5eb;
-            border-radius: 8px;
-            color: #0c5460;
-            margin-bottom: 20px;
-        }
-        
-        .info-box h4 {
-            margin-bottom: 10px;
-        }
-        
-        .info-box ul {
-            margin-left: 20px;
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; color: #333; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .header { background: white; border-radius: 16px; padding: 24px; margin-bottom: 24px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
+        .header h1 { font-size: 28px; color: #1f2937; margin-bottom: 8px; }
+        .version-badge { display: inline-block; background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-left: 12px; }
+        .header p { color: #6b7280; margin-bottom: 20px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .stat-card { background: #f8fafc; padding: 16px; border-radius: 12px; border-left: 4px solid #667eea; text-align: center; }
+        .stat-card.highlight { border-left-color: #10b981; background: linear-gradient(135deg, #ecfdf5, #f0fdf4); }
+        .stat-value { font-size: 24px; font-weight: 700; color: #1f2937; }
+        .stat-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+        .main-content { background: white; border-radius: 16px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
+        .main-tabs { display: flex; background: #f8fafc; border-bottom: 1px solid #e5e7eb; }
+        .main-tab { flex: 1; padding: 16px 24px; background: none; border: none; cursor: pointer; font-weight: 600; color: #6b7280; transition: all 0.2s; }
+        .main-tab.active { background: white; color: #667eea; border-bottom: 2px solid #667eea; }
+        .tab-content { display: none; min-height: 600px; }
+        .tab-content.active { display: block; }
+        .funnel-editor { display: flex; height: 600px; }
+        .funnel-sidebar { width: 300px; background: #f8fafc; border-right: 1px solid #e5e7eb; padding: 24px; overflow-y: auto; }
+        .funnel-selector { margin-bottom: 24px; }
+        .funnel-selector label { display: block; font-weight: 600; color: #1f2937; margin-bottom: 8px; }
+        .funnel-selector select { width: 100%; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; background: white; }
+        .block-palette { margin-bottom: 24px; }
+        .block-palette h3 { font-size: 16px; color: #1f2937; margin-bottom: 12px; }
+        .block-item { display: flex; align-items: center; gap: 12px; padding: 12px; background: white; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s; }
+        .block-item:hover { border-color: #667eea; background: #f0f4ff; }
+        .block-icon { width: 32px; height: 32px; background: #667eea; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; }
+        .funnel-workspace { flex: 1; padding: 24px; overflow-y: auto; }
+        .workspace-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; flex-wrap: wrap; gap: 12px; }
+        .workspace-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+        .current-funnel { font-size: 18px; font-weight: 600; color: #1f2937; }
+        .btn { background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s; }
+        .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); }
+        .btn-small { padding: 6px 12px; font-size: 12px; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; background: #9ca3af !important; }
+        .btn:disabled:hover { transform: none; box-shadow: none; }
+        .btn-danger { background: #dc2626; }
+        .btn-success { background: linear-gradient(135deg, #10b981, #059669); }
+        .steps-container { min-height: 400px; }
+        .step-card { background: white; border: 2px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-bottom: 16px; transition: all 0.2s; }
+        .step-card:hover { border-color: #667eea; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.1); }
+        .step-card.editing { border-color: #667eea; background: #f0f4ff; }
+        .step-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .step-number { width: 32px; height: 32px; background: #667eea; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+        .step-type { display: flex; align-items: center; gap: 8px; font-weight: 600; color: #1f2937; }
+        .step-actions { display: flex; gap: 8px; }
+        .step-content { margin-left: 40px; }
+        .step-preview { background: #f8fafc; padding: 12px; border-radius: 8px; font-size: 14px; color: #4b5563; margin-bottom: 12px; }
+        .step-config { display: none; }
+        .step-config.active { display: block; }
+        .form-group { margin-bottom: 16px; }
+        .form-label { display: block; font-weight: 500; color: #374151; margin-bottom: 6px; }
+        .form-input { width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; }
+        .form-input:focus { outline: none; border-color: #667eea; box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1); }
+        .form-textarea { min-height: 80px; resize: vertical; }
+        .form-checkbox { display: flex; align-items: center; gap: 8px; margin: 12px 0; }
+        .connector { display: flex; justify-content: center; margin: -8px 0; }
+        .connector-line { width: 2px; height: 30px; background: #667eea; position: relative; }
+        .connector-arrow { position: absolute; bottom: -4px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 8px solid #667eea; }
+        .empty-workspace { text-align: center; padding: 60px 20px; color: #6b7280; }
+        .empty-workspace h3 { color: #374151; margin-bottom: 8px; }
+        .events-container { padding: 24px; }
+        .events-table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .events-table th, .events-table td { padding: 12px; text-align: left; border-bottom: 1px solid #f3f4f6; }
+        .events-table th { background: #f8fafc; font-weight: 600; color: #374151; font-size: 14px; }
+        .badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+        .badge-success { background: #d1fae5; color: #065f46; }
+        .badge-warning { background: #fef3c7; color: #92400e; }
+        .badge-info { background: #dbeafe; color: #1e40af; }
+        .badge-danger { background: #fecaca; color: #991b1b; }
+        .badge-secondary { background: #f3f4f6; color: #374151; }
+        @media (max-width: 768px) {
+            .funnel-editor { flex-direction: column; height: auto; }
+            .funnel-sidebar { width: 100%; border-right: none; border-bottom: 1px solid #e5e7eb; }
+            .stats-grid { grid-template-columns: 1fr 1fr; }
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>🚀 Sistema de Automação WhatsApp v7.0</h1>
-        
-        <div class="stats-grid" id="statsGrid">
-            <div class="stat-card">
-                <h3>Conversas Ativas</h3>
-                <div class="value" id="statActive">0</div>
-            </div>
-            <div class="stat-card">
-                <h3>Aguardando Resposta</h3>
-                <div class="value" id="statWaiting">0</div>
-            </div>
-            <div class="stat-card">
-                <h3>PIX Pendentes</h3>
-                <div class="value" id="statPix">0</div>
-            </div>
-            <div class="stat-card">
-                <h3>Concluídas</h3>
-                <div class="value" id="statCompleted">0</div>
-            </div>
-            <div class="stat-card">
-                <h3>Pausadas</h3>
-                <div class="value" id="statPaused">0</div>
-            </div>
-            <div class="stat-card">
-                <h3>Canceladas</h3>
-                <div class="value" id="statCanceled">0</div>
+    <div class="container">
+        <div class="header">
+            <h1>Kirvano - Editor de Funis <span class="version-badge">v2.0</span></h1>
+            <p>Sistema otimizado para CS e FAB com identificação inteligente</p>
+            <div class="stats-grid">
+                <div class="stat-card highlight">
+                    <div class="stat-value" id="statsConversations">-</div>
+                    <div class="stat-label">Conversas Ativas</div>
+                </div>
+                <div class="stat-card highlight">
+                    <div class="stat-value" id="statsPix">-</div>
+                    <div class="stat-label">PIX Pendentes</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="statsFunnels">4</div>
+                    <div class="stat-label">Funis Ativos</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="statsInstances">12</div>
+                    <div class="stat-label">Instâncias</div>
+                </div>
             </div>
         </div>
-    </div>
-    
-    <div class="container">
-        <div class="tabs">
-            <div class="tab-buttons">
-                <button class="tab-button active" onclick="switchTab('conversations')">
-                    📱 Conversas Ativas
-                </button>
-                <button class="tab-button" onclick="switchTab('funnels')">
-                    🔄 Editor de Funis
-                </button>
-                <button class="tab-button" onclick="switchTab('keywords')">
-                    🚫 Palavras de Cancelamento
-                </button>
-                <button class="tab-button" onclick="switchTab('instances')">
-                    📡 Instâncias
-                </button>
-                <button class="tab-button" onclick="switchTab('logs')">
-                    📋 Logs
-                </button>
+
+        <div class="main-content">
+            <div class="main-tabs">
+                <button class="main-tab active" onclick="switchMainTab('editor')">Editor de Funis</button>
+                <button class="main-tab" onclick="switchMainTab('events')">Lista de Conversas</button>
             </div>
-            
-            <div class="tab-content">
-                <!-- Tab: Conversas -->
-                <div id="conversations" class="tab-panel active">
-                    <div class="action-bar">
-                        <h2>Lista de Conversas</h2>
-                        <button class="btn-primary" onclick="refreshConversations()">🔄 Atualizar</button>
+
+            <div id="editor" class="tab-content active">
+                <div class="funnel-editor">
+                    <div class="funnel-sidebar">
+                        <div class="funnel-selector">
+                            <label>Selecione o Funil:</label>
+                            <select id="funnelSelect" onchange="loadFunnelEditor()">
+                                <option value="CS_APROVADA">CS - Compra Aprovada</option>
+                                <option value="CS_PIX">CS - PIX Pendente</option>
+                                <option value="FAB_APROVADA">FAB - Compra Aprovada</option>
+                                <option value="FAB_PIX">FAB - PIX Pendente</option>
+                            </select>
+                        </div>
+
+                        <div class="block-palette">
+                            <h3>Adicionar Blocos:</h3>
+                            <div class="block-item" onclick="addBlock('text')">
+                                <div class="block-icon">T</div>
+                                <div><div style="font-weight: 600;">Mensagem de Texto</div><div style="font-size: 12px; color: #6b7280;">Enviar texto simples</div></div>
+                            </div>
+                            <div class="block-item" onclick="addBlock('image')">
+                                <div class="block-icon">📷</div>
+                                <div><div style="font-weight: 600;">Imagem</div><div style="font-size: 12px; color: #6b7280;">Enviar imagem</div></div>
+                            </div>
+                            <div class="block-item" onclick="addBlock('video')">
+                                <div class="block-icon">🎥</div>
+                                <div><div style="font-weight: 600;">Vídeo</div><div style="font-size: 12px; color: #6b7280;">Enviar vídeo</div></div>
+                            </div>
+                            <div class="block-item" onclick="addBlock('image+text')">
+                                <div class="block-icon">📝</div>
+                                <div><div style="font-weight: 600;">Imagem + Texto</div><div style="font-size: 12px; color: #6b7280;">Imagem com legenda</div></div>
+                            </div>
+                            <div class="block-item" onclick="addBlock('video+text')">
+                                <div class="block-icon">🎬</div>
+                                <div><div style="font-weight: 600;">Vídeo + Texto</div><div style="font-size: 12px; color: #6b7280;">Vídeo com legenda</div></div>
+                            </div>
+                            <div class="block-item" onclick="addBlock('delay')">
+                                <div class="block-icon">⏰</div>
+                                <div><div style="font-weight: 600;">Delay</div><div style="font-size: 12px; color: #6b7280;">Pausar entre mensagens</div></div>
+                            </div>
+                            <div class="block-item" onclick="addBlock('typing')">
+                                <div class="block-icon">💬</div>
+                                <div><div style="font-weight: 600;">Digitando</div><div style="font-size: 12px; color: #6b7280;">Simular "está digitando"</div></div>
+                            </div>
+                            <div class="block-item" onclick="addBlock('audio')">
+                                <div class="block-icon">🎵</div>
+                                <div><div style="font-weight: 600;">Áudio</div><div style="font-size: 12px; color: #6b7280;">Enviar arquivo de áudio</div></div>
+                            </div>
+                        </div>
                     </div>
-                    
-                    <table class="conversations-table">
+
+                    <div class="funnel-workspace">
+                        <div class="workspace-header">
+                            <div class="current-funnel" id="currentFunnelName">CS - Compra Aprovada</div>
+                            <div class="workspace-actions">
+                                <button class="btn btn-success" onclick="exportFunnels()">💾 Export</button>
+                                <button class="btn btn-success" onclick="importFunnels()">📤 Import</button>
+                                <button class="btn" onclick="saveFunnel()">Salvar Funil</button>
+                            </div>
+                        </div>
+                        <div class="steps-container" id="stepsContainer">
+                            <div class="empty-workspace"><h3>Funil vazio</h3><p>Adicione blocos da barra lateral</p></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="events" class="tab-content">
+                <div class="events-container">
+                    <h2 style="margin-bottom: 20px;">Conversas e Envios</h2>
+                    <table class="events-table">
                         <thead>
                             <tr>
                                 <th>Cliente</th>
                                 <th>Telefone</th>
+                                <th>Chave</th>
                                 <th>Produto</th>
-                                <th>Valor</th>
                                 <th>Funil</th>
                                 <th>Passo</th>
                                 <th>Status</th>
                                 <th>Instância</th>
-                                <th>Data/Hora</th>
-                                <th>Ações</th>
+                                <th>Data</th>
                             </tr>
                         </thead>
-                        <tbody id="conversationsList">
-                            <tr>
-                                <td colspan="10" style="text-align: center; padding: 40px; color: #6c757d;">
-                                    Carregando conversas...
-                                </td>
-                            </tr>
+                        <tbody id="eventsTableBody">
+                            <tr><td colspan="9" style="text-align: center; padding: 40px; color: #6b7280;">Carregando...</td></tr>
                         </tbody>
                     </table>
-                </div>
-                
-                <!-- Tab: Funis -->
-                <div id="funnels" class="tab-panel">
-                    <div class="funnel-selector">
-                        <label>Selecione o Funil:</label>
-                        <select id="funnelSelect" onchange="loadFunnel()">
-                            <option value="">-- Selecione --</option>
-                            <option value="CS_PIX">CS - PIX Pendente</option>
-                            <option value="CS_APROVADA">CS - Compra Aprovada</option>
-                            <option value="FAB_PIX">FAB - PIX Pendente</option>
-                            <option value="FAB_APROVADA">FAB - Compra Aprovada</option>
-                        </select>
-                    </div>
-                    
-                    <div class="info-box">
-                        <h4>📌 Variáveis Disponíveis:</h4>
-                        <ul>
-                            <li><strong>{{NOME}}</strong> - Primeiro nome do cliente</li>
-                            <li><strong>{{VALOR}}</strong> - Valor total do pedido</li>
-                            <li><strong>{{PRODUTO}}</strong> - Nome do produto + plataforma</li>
-                            <li><strong>{{PIX_URL}}</strong> - Link do PIX para pagamento</li>
-                        </ul>
-                    </div>
-                    
-                    <div id="funnelEditor" class="block-list">
-                        <p style="text-align: center; color: #6c757d;">
-                            Selecione um funil para editar
-                        </p>
-                    </div>
-                    
-                    <div style="margin-top: 20px; text-align: right;">
-                        <button class="btn-primary" onclick="saveFunnel()">💾 Salvar Funil</button>
-                    </div>
-                </div>
-                
-                <!-- Tab: Palavras de Cancelamento -->
-                <div id="keywords" class="tab-panel">
-                    <div class="keywords-container">
-                        <div class="keywords-header">
-                            <h2>🚫 Palavras-Chave de Cancelamento Automático</h2>
-                            <div class="keywords-count" id="keywordsCount">0 palavras</div>
-                        </div>
-                        
-                        <div class="info-box">
-                            <h4>Como funciona:</h4>
-                            <p>Quando um lead enviar qualquer mensagem contendo estas palavras/frases, o fluxo será cancelado automaticamente.</p>
-                        </div>
-                        
-                        <div class="add-keyword-form">
-                            <input type="text" id="newKeyword" placeholder="Digite a palavra ou frase..." 
-                                   onkeypress="if(event.key === 'Enter') addKeyword()">
-                            <button onclick="addKeyword()">➕ Adicionar</button>
-                        </div>
-                        
-                        <div class="keywords-list" id="keywordsList">
-                            <p style="text-align: center; color: #6c757d;">
-                                Carregando palavras-chave...
-                            </p>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Tab: Instâncias -->
-                <div id="instances" class="tab-panel">
-                    <h2>📡 Distribuição de Instâncias</h2>
-                    <div id="instancesInfo" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-top: 20px;">
-                        <!-- Instâncias serão carregadas aqui -->
-                    </div>
-                </div>
-                
-                <!-- Tab: Logs -->
-                <div id="logs" class="tab-panel">
-                    <div class="action-bar">
-                        <h2>📋 Logs do Sistema</h2>
-                        <button class="btn-primary" onclick="refreshLogs()">🔄 Atualizar</button>
-                    </div>
-                    
-                    <div class="logs-container" id="logsContainer">
-                        <p style="text-align: center; color: #6c757d;">
-                            Carregando logs...
-                        </p>
-                    </div>
                 </div>
             </div>
         </div>
     </div>
-    
+
     <script>
-        // Configuração da API
-        const API_URL = window.location.origin;
-        
-        // Estado global
-        let currentFunnel = null;
-        let conversations = [];
-        let cancelKeywords = [];
-        
-        // Função para trocar de aba
-        function switchTab(tabName) {
-            // Remove active de todos os botões e painéis
-            document.querySelectorAll('.tab-button').forEach(btn => btn.classList.remove('active'));
-            document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
-            
-            // Adiciona active ao botão e painel selecionados
+        let currentFunnelData = null;
+        let editingStepIndex = -1;
+        let funnelsData = {
+            'CS_APROVADA': { id: 'CS_APROVADA', name: 'CS - Compra Aprovada', steps: [] },
+            'CS_PIX': { id: 'CS_PIX', name: 'CS - PIX Pendente', steps: [] },
+            'FAB_APROVADA': { id: 'FAB_APROVADA', name: 'FAB - Compra Aprovada', steps: [] },
+            'FAB_PIX': { id: 'FAB_PIX', name: 'FAB - PIX Pendente', steps: [] }
+        };
+
+        function switchMainTab(tabName) {
+            document.querySelectorAll('.main-tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
             event.target.classList.add('active');
             document.getElementById(tabName).classList.add('active');
-            
-            // Carrega dados específicos da aba
-            if (tabName === 'conversations') {
-                refreshConversations();
-            } else if (tabName === 'keywords') {
-                loadCancelKeywords();
-            } else if (tabName === 'instances') {
-                loadInstancesInfo();
-            } else if (tabName === 'logs') {
-                refreshLogs();
+            if (tabName === 'events') loadEvents();
+        }
+
+        function loadFunnelEditor() {
+            const funnelId = document.getElementById('funnelSelect').value;
+            currentFunnelData = funnelsData[funnelId];
+            if (currentFunnelData) {
+                document.getElementById('currentFunnelName').textContent = currentFunnelData.name;
+                renderSteps();
             }
         }
-        
-        // Função para atualizar estatísticas
-        async function updateStats() {
-            try {
-                const response = await fetch(`${API_URL}/api/dashboard`);
-                const data = await response.json();
-                
-                if (data.success) {
-                    document.getElementById('statActive').textContent = data.data.active_conversations || 0;
-                    document.getElementById('statWaiting').textContent = data.data.waiting_responses || 0;
-                    document.getElementById('statPix').textContent = data.data.pending_pix || 0;
-                    document.getElementById('statCompleted').textContent = data.data.completed_conversations || 0;
-                    document.getElementById('statPaused').textContent = data.data.paused_conversations || 0;
-                    document.getElementById('statCanceled').textContent = data.data.canceled_conversations || 0;
-                }
-            } catch (error) {
-                console.error('Erro ao atualizar stats:', error);
-            }
+
+        function addBlock(type) {
+            if (!currentFunnelData) return;
+            const newStep = { id: 'step_' + (currentFunnelData.steps.length + 1), type: type, text: '', mediaUrl: '', waitForReply: false };
+            currentFunnelData.steps.push(newStep);
+            renderSteps();
         }
-        
-        // Função para carregar conversas
-        async function refreshConversations() {
-            try {
-                const response = await fetch(`${API_URL}/api/conversations`);
-                const data = await response.json();
-                
-                if (data.success) {
-                    conversations = data.data;
-                    renderConversations();
-                }
-            } catch (error) {
-                console.error('Erro ao carregar conversas:', error);
-            }
+
+        function removeStep(index) {
+            if (!currentFunnelData) return;
+            currentFunnelData.steps.splice(index, 1);
+            renderSteps();
         }
-        
-        // Função para renderizar conversas
-        function renderConversations() {
-            const tbody = document.getElementById('conversationsList');
-            
-            if (conversations.length === 0) {
-                tbody.innerHTML = `
-                    <tr>
-                        <td colspan="10" style="text-align: center; padding: 40px; color: #6c757d;">
-                            Nenhuma conversa ativa
-                        </td>
-                    </tr>
-                `;
+
+        function editStep(index) {
+            editingStepIndex = index;
+            renderSteps();
+        }
+
+        function updateStep(index, field, value) {
+            if (!currentFunnelData.steps[index]) return;
+            currentFunnelData.steps[index][field] = value;
+            renderSteps();
+        }
+
+        function getStepIcon(type) {
+            const icons = { 'text': 'T', 'image': '📷', 'video': '🎥', 'image+text': '📝', 'video+text': '🎬', 'delay': '⏰', 'typing': '💬', 'audio': '🎵' };
+            return icons[type] || 'T';
+        }
+
+        function getStepTypeName(type) {
+            const names = { 'text': 'Mensagem de Texto', 'image': 'Imagem', 'video': 'Vídeo', 'image+text': 'Imagem + Texto', 'video+text': 'Vídeo + Texto', 'delay': 'Delay', 'typing': 'Digitando', 'audio': 'Áudio' };
+            return names[type] || 'Mensagem';
+        }
+
+        // ✅ ÚNICA MUDANÇA: CORRIGIDO currentFunnel → currentFunnelData
+        async function moveStep(index, direction) {
+            if (!currentFunnelData) {  // ✅ CORRIGIDO
+                console.error('❌ Nenhum funil selecionado');
                 return;
             }
             
-            tbody.innerHTML = conversations.map(conv => {
-                let statusBadge = '';
-                let statusClass = '';
-                
-                if (conv.canceled) {
-                    statusBadge = 'Cancelado';
-                    statusClass = 'status-cancelado';
-                } else if (conv.paused) {
-                    statusBadge = 'Pausado';
-                    statusClass = 'status-pausado';
-                } else if (conv.completed) {
-                    statusBadge = 'Concluído';
-                    statusClass = 'status-concluido';
-                } else if (conv.waiting_for_response) {
-                    statusBadge = 'Aguardando';
-                    statusClass = 'status-aguardando';
-                } else {
-                    statusBadge = 'Enviando';
-                    statusClass = 'status-enviando';
-                }
-                
-                const createdDate = new Date(conv.createdAt);
-                const dateStr = createdDate.toLocaleDateString('pt-BR');
-                const timeStr = createdDate.toLocaleTimeString('pt-BR');
-                
-                let actionButtons = '';
-                if (!conv.canceled && !conv.completed) {
-                    if (conv.paused) {
-                        actionButtons = `
-                            <button class="btn-action btn-resume" onclick="pauseConversation('${conv.phoneKey}')">
-                                ▶️ Retomar
-                            </button>
-                        `;
-                    } else {
-                        actionButtons = `
-                            <button class="btn-action btn-pause" onclick="pauseConversation('${conv.phoneKey}')">
-                                ⏸️ Pausar
-                            </button>
-                        `;
-                    }
-                    actionButtons += `
-                        <button class="btn-action btn-cancel" onclick="cancelConversation('${conv.phoneKey}')">
-                            ❌ Cancelar
-                        </button>
-                    `;
-                }
-                
-                return `
-                    <tr>
-                        <td>${conv.customerName || '-'}</td>
-                        <td>${conv.phone}</td>
-                        <td>${conv.productDisplay || `${conv.productType} - ${conv.platform || 'Kirvano'}`}</td>
-                        <td>${conv.amount || '-'}</td>
-                        <td>${conv.funnelId}</td>
-                        <td>${conv.stepIndex + 1}</td>
-                        <td><span class="status-badge ${statusClass}">${statusBadge}</span></td>
-                        <td>${conv.stickyInstance || '-'}</td>
-                        <td>${dateStr} ${timeStr}</td>
-                        <td>
-                            <div class="action-buttons">
-                                ${actionButtons}
-                            </div>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-        }
-        
-        // Função para pausar/retomar conversa
-        async function pauseConversation(phoneKey) {
-            try {
-                const response = await fetch(`${API_URL}/api/conversation/${phoneKey}/pause`, {
-                    method: 'POST'
-                });
-                const data = await response.json();
-                
-                if (data.success) {
-                    alert(data.message);
-                    refreshConversations();
-                    updateStats();
-                } else {
-                    alert('Erro: ' + data.message);
-                }
-            } catch (error) {
-                console.error('Erro ao pausar conversa:', error);
-                alert('Erro ao pausar/retomar conversa');
-            }
-        }
-        
-        // Função para cancelar conversa
-        async function cancelConversation(phoneKey) {
-            if (!confirm('Tem certeza que deseja cancelar esta conversa?')) {
+            const toIndex = direction === 'up' ? index - 1 : index + 1;
+            
+            if (toIndex < 0 || toIndex >= currentFunnelData.steps.length) {  // ✅ CORRIGIDO
+                console.warn('⚠️ Não é possível mover nesta direção');
                 return;
             }
             
-            try {
-                const response = await fetch(`${API_URL}/api/conversation/${phoneKey}/cancel`, {
-                    method: 'POST'
-                });
-                const data = await response.json();
-                
-                if (data.success) {
-                    alert('Conversa cancelada com sucesso!');
-                    refreshConversations();
-                    updateStats();
-                } else {
-                    alert('Erro: ' + data.error);
-                }
-            } catch (error) {
-                console.error('Erro ao cancelar conversa:', error);
-                alert('Erro ao cancelar conversa');
-            }
-        }
-        
-        // Função para carregar palavras-chave
-        async function loadCancelKeywords() {
-            try {
-                const response = await fetch(`${API_URL}/api/cancel-keywords`);
-                const data = await response.json();
-                
-                if (data.success) {
-                    cancelKeywords = data.data;
-                    renderCancelKeywords();
-                    document.getElementById('keywordsCount').textContent = `${data.count} palavras`;
-                }
-            } catch (error) {
-                console.error('Erro ao carregar palavras-chave:', error);
-            }
-        }
-        
-        // Função para renderizar palavras-chave
-        function renderCancelKeywords() {
-            const container = document.getElementById('keywordsList');
-            
-            if (cancelKeywords.length === 0) {
-                container.innerHTML = `
-                    <p style="text-align: center; color: #6c757d; padding: 40px;">
-                        Nenhuma palavra-chave cadastrada
-                    </p>
-                `;
-                return;
-            }
-            
-            container.innerHTML = cancelKeywords.map(keyword => `
-                <div class="keyword-item">
-                    <span class="keyword-text">${keyword}</span>
-                    <button class="keyword-remove" onclick="removeKeyword('${keyword}')">
-                        🗑️ Remover
-                    </button>
-                </div>
-            `).join('');
-        }
-        
-        // Função para adicionar palavra-chave
-        async function addKeyword() {
-            const input = document.getElementById('newKeyword');
-            const keyword = input.value.trim().toLowerCase();
-            
-            if (!keyword) {
-                alert('Digite uma palavra ou frase');
-                return;
-            }
+            console.log('🔄 Movendo passo...', { 
+                funnelId: currentFunnelData.id,  // ✅ CORRIGIDO
+                fromIndex: index, 
+                toIndex, 
+                direction 
+            });
             
             try {
-                const response = await fetch(`${API_URL}/api/cancel-keywords/add`, {
+                const response = await fetch(`/api/funnels/${currentFunnelData.id}/move-step`, {  // ✅ CORRIGIDO
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ keyword })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fromIndex: index, direction })
                 });
                 
-                const data = await response.json();
+                const result = await response.json();
                 
-                if (data.success) {
-                    input.value = '';
-                    loadCancelKeywords();
-                    alert('Palavra-chave adicionada com sucesso!');
+                console.log('📥 Resposta:', result);
+                
+                if (result.success) {
+                    currentFunnelData.steps = result.data.steps;  // ✅ CORRIGIDO
+                    funnelsData[currentFunnelData.id].steps = result.data.steps;  // ✅ CORRIGIDO
+                    editingStepIndex = -1;
+                    renderSteps();
+                    console.log('✅ Sucesso!');
                 } else {
-                    alert('Erro: ' + data.error);
+                    console.error('❌ Erro:', result.error);
                 }
             } catch (error) {
-                console.error('Erro ao adicionar palavra-chave:', error);
-                alert('Erro ao adicionar palavra-chave');
+                console.error('❌ Erro:', error);
             }
         }
-        
-        // Função para remover palavra-chave
-        async function removeKeyword(keyword) {
-            if (!confirm(`Remover "${keyword}"?`)) {
+
+        function renderSteps() {
+            const container = document.getElementById('stepsContainer');
+            if (!currentFunnelData || currentFunnelData.steps.length === 0) {
+                container.innerHTML = '<div class="empty-workspace"><h3>Funil vazio</h3><p>Adicione blocos da barra lateral</p></div>';
                 return;
             }
-            
-            try {
-                const response = await fetch(`${API_URL}/api/cancel-keywords/remove`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ keyword })
-                });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    loadCancelKeywords();
-                    alert('Palavra-chave removida!');
-                } else {
-                    alert('Erro: ' + data.error);
-                }
-            } catch (error) {
-                console.error('Erro ao remover palavra-chave:', error);
-                alert('Erro ao remover palavra-chave');
-            }
-        }
-        
-        // Função para carregar funil
-        async function loadFunnel() {
-            const select = document.getElementById('funnelSelect');
-            const funnelId = select.value;
-            
-            if (!funnelId) {
-                document.getElementById('funnelEditor').innerHTML = `
-                    <p style="text-align: center; color: #6c757d;">
-                        Selecione um funil para editar
-                    </p>
-                `;
-                return;
-            }
-            
-            try {
-                const response = await fetch(`${API_URL}/api/funnels`);
-                const data = await response.json();
-                
-                if (data.success) {
-                    currentFunnel = data.data.find(f => f.id === funnelId);
-                    renderFunnelEditor();
-                }
-            } catch (error) {
-                console.error('Erro ao carregar funil:', error);
-            }
-        }
-        
-        // Função para renderizar editor de funil
-        function renderFunnelEditor() {
-            if (!currentFunnel) return;
-            
-            const editor = document.getElementById('funnelEditor');
-            
-            editor.innerHTML = `
-                <h3>${currentFunnel.name}</h3>
-                ${currentFunnel.steps.map((step, index) => `
-                    <div class="block-item">
-                        <div class="block-header">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <div class="block-number">${index + 1}</div>
-                                <span><strong>Mensagem de Texto</strong></span>
+            let html = '';
+            currentFunnelData.steps.forEach((step, index) => {
+                const isEditing = editingStepIndex === index;
+                const stepIcon = getStepIcon(step.type);
+                const stepTypeName = getStepTypeName(step.type);
+                html += `
+                    <div class="step-card ${isEditing ? 'editing' : ''}">
+                        <div class="step-header">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <div style="display: flex; flex-direction: column; gap: 4px;">
+                                    <button class="btn btn-small" onclick="moveStep(${index}, 'up')" ${index === 0 ? 'disabled' : ''} style="padding: 4px 8px; font-size: 16px; line-height: 1;">↑</button>
+                                    <button class="btn btn-small" onclick="moveStep(${index}, 'down')" ${index === currentFunnelData.steps.length - 1 ? 'disabled' : ''} style="padding: 4px 8px; font-size: 16px; line-height: 1;">↓</button>
+                                </div>
+                                <div class="step-number">${index + 1}</div>
+                                <div class="step-type"><span>${stepIcon}</span><span>${stepTypeName}</span></div>
                             </div>
-                            <div class="block-actions">
-                                ${index > 0 ? `<button class="btn-move" onclick="moveStep(${index}, 'up')">⬆️</button>` : ''}
-                                ${index < currentFunnel.steps.length - 1 ? `<button class="btn-move" onclick="moveStep(${index}, 'down')">⬇️</button>` : ''}
-                                <button class="btn-edit" onclick="editStep(${index})">✏️ Editar</button>
+                            <div class="step-actions">
+                                <button class="btn btn-small" onclick="editStep(${index})">${isEditing ? 'Salvar' : 'Editar'}</button>
+                                <button class="btn btn-small btn-danger" onclick="removeStep(${index})">Remover</button>
                             </div>
                         </div>
-                        <div style="margin-top: 10px;">
-                            <textarea id="step_${index}" style="width: 100%; min-height: 100px; padding: 10px; border: 1px solid #ddd; border-radius: 5px;">
-${step.text || ''}
-                            </textarea>
-                            <div style="margin-top: 10px;">
-                                <label>
-                                    <input type="checkbox" id="wait_${index}" ${step.waitForReply ? 'checked' : ''}>
-                                    Aguardar resposta
-                                </label>
-                                <label style="margin-left: 20px;">
-                                    Delay: 
-                                    <input type="number" id="delay_${index}" value="${step.delayBefore || 0}" 
-                                           style="width: 60px; padding: 5px; border: 1px solid #ddd; border-radius: 3px;">
-                                    segundos
-                                </label>
+                        <div class="step-content">
+                            <div class="step-preview" style="display: ${isEditing ? 'none' : 'block'}">
+                                ${step.type === 'delay' ? `<span style="color: #667eea;">⏰ Aguardar ${step.delaySeconds || 0} segundos</span>` : 
+                                  step.type === 'typing' ? `<span style="color: #667eea;">💬 Mostrar "digitando" por ${step.typingSeconds || 3} segundos</span>` : 
+                                  step.type === 'audio' ? `<strong>Áudio:</strong> ${step.mediaUrl || 'URL não configurada'}${step.waitForReply ? '<br><span style="color: #dc2626;">⏸️ Aguardar resposta</span>' : ''}` : 
+                                  `${step.delayBefore ? `<span style="color: #f59e0b;">⏰ Delay: ${step.delayBefore}s</span><br>` : ''}
+                                   ${step.showTyping ? '<span style="color: #667eea;">💬 Mostrar "digitando"</span><br>' : ''}
+                                   ${step.text ? `<strong>Texto:</strong> ${step.text.substring(0, 100)}${step.text.length > 100 ? '...' : ''}` : ''}
+                                   ${step.mediaUrl ? `<br><strong>Mídia:</strong> ${step.mediaUrl}` : ''}
+                                   ${step.waitForReply ? '<br><span style="color: #dc2626;">⏸️ Aguardar resposta</span>' : ''}`}
+                            </div>
+                            <div class="step-config ${isEditing ? 'active' : ''}">
+                                ${step.type === 'delay' ? `
+                                    <div class="form-group">
+                                        <label class="form-label">Tempo de Delay (segundos)</label>
+                                        <input type="number" class="form-input" placeholder="30" value="${step.delaySeconds || ''}" oninput="updateStep(${index}, 'delaySeconds', this.value)">
+                                    </div>
+                                ` : step.type === 'typing' ? `
+                                    <div class="form-group">
+                                        <label class="form-label">Tempo Digitando (segundos)</label>
+                                        <input type="number" class="form-input" placeholder="3" value="${step.typingSeconds || ''}" oninput="updateStep(${index}, 'typingSeconds', this.value)">
+                                    </div>
+                                ` : `
+                                    <div class="form-group">
+                                        <label class="form-label">Texto da Mensagem</label>
+                                        <textarea class="form-input form-textarea" placeholder="Digite o texto..." oninput="updateStep(${index}, 'text', this.value)">${step.text || ''}</textarea>
+                                    </div>
+                                    ${step.type !== 'text' ? `
+                                    <div class="form-group">
+                                        <label class="form-label">URL da Mídia</label>
+                                        <input type="url" class="form-input" placeholder="https://..." value="${step.mediaUrl || ''}" oninput="updateStep(${index}, 'mediaUrl', this.value)">
+                                    </div>` : ''}
+                                    <div class="form-group">
+                                        <label class="form-label">Delay antes (segundos)</label>
+                                        <input type="number" class="form-input" placeholder="0" value="${step.delayBefore || ''}" oninput="updateStep(${index}, 'delayBefore', this.value)">
+                                    </div>
+                                    <div class="form-checkbox">
+                                        <input type="checkbox" id="typing_${index}" ${step.showTyping ? 'checked' : ''} onchange="updateStep(${index}, 'showTyping', this.checked)">
+                                        <label for="typing_${index}">Mostrar "digitando"</label>
+                                    </div>
+                                    <div class="form-checkbox">
+                                        <input type="checkbox" id="wait_${index}" ${step.waitForReply ? 'checked' : ''} onchange="updateStep(${index}, 'waitForReply', this.checked)">
+                                        <label for="wait_${index}">⏸️ Aguardar resposta</label>
+                                    </div>
+                                `}
                             </div>
                         </div>
                     </div>
-                `).join('')}
-            `;
+                `;
+                if (index < currentFunnelData.steps.length - 1) {
+                    html += '<div class="connector"><div class="connector-line"><div class="connector-arrow"></div></div></div>';
+                }
+            });
+            container.innerHTML = html;
         }
-        
-        // Função para salvar funil
+
         async function saveFunnel() {
-            if (!currentFunnel) {
-                alert('Selecione um funil primeiro');
+            if (!currentFunnelData || currentFunnelData.steps.length === 0) {
+                alert('Adicione pelo menos um passo');
                 return;
             }
-            
-            // Coleta os dados do formulário
-            const updatedFunnel = {
-                ...currentFunnel,
-                steps: currentFunnel.steps.map((step, index) => ({
-                    ...step,
-                    text: document.getElementById(`step_${index}`).value,
-                    waitForReply: document.getElementById(`wait_${index}`).checked,
-                    delayBefore: parseInt(document.getElementById(`delay_${index}`).value) || 0
-                }))
-            };
-            
+            for (let i = 0; i < currentFunnelData.steps.length; i++) {
+                const step = currentFunnelData.steps[i];
+                if (step.type === 'text' && (!step.text || step.text.trim() === '')) {
+                    alert(`Passo ${i + 1}: Texto obrigatório`);
+                    return;
+                }
+                if (step.type === 'delay' && (!step.delaySeconds || step.delaySeconds <= 0)) {
+                    alert(`Passo ${i + 1}: Tempo de delay obrigatório`);
+                    return;
+                }
+                if ((step.type === 'image' || step.type === 'video' || step.type === 'audio' || step.type === 'image+text' || step.type === 'video+text') && (!step.mediaUrl || step.mediaUrl.trim() === '')) {
+                    alert(`Passo ${i + 1}: URL da mídia obrigatória`);
+                    return;
+                }
+            }
             try {
-                const response = await fetch(`${API_URL}/api/funnels`, {
+                const response = await fetch('/api/funnels', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(updatedFunnel)
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentFunnelData)
                 });
-                
-                const data = await response.json();
-                
-                if (data.success) {
-                    alert('Funil salvo com sucesso!');
-                    currentFunnel = updatedFunnel;
+                const result = await response.json();
+                if (result.success) {
+                    alert('✅ Funil salvo com sucesso!');
+                    editingStepIndex = -1;
+                    renderSteps();
                 } else {
-                    alert('Erro ao salvar: ' + data.error);
+                    alert('❌ Erro: ' + result.error);
                 }
             } catch (error) {
-                console.error('Erro ao salvar funil:', error);
-                alert('Erro ao salvar funil');
+                alert('❌ Erro: ' + error.message);
             }
         }
-        
-        // Função para carregar informações das instâncias
-        async function loadInstancesInfo() {
+
+        async function loadEvents() {
             try {
-                const response = await fetch(`${API_URL}/api/dashboard`);
-                const data = await response.json();
-                
-                if (data.success) {
-                    const container = document.getElementById('instancesInfo');
-                    const distribution = data.data.instance_distribution || {};
-                    
-                    container.innerHTML = Object.entries(distribution).map(([instance, count]) => `
-                        <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; text-align: center;">
-                            <h4>${instance}</h4>
-                            <div style="font-size: 24px; font-weight: bold; color: #667eea;">${count}</div>
-                            <div style="font-size: 12px; color: #6c757d;">conversas</div>
-                        </div>
-                    `).join('');
-                }
+                const response = await fetch('/api/conversations');
+                const result = await response.json();
+                if (result.success) renderEvents(result.data);
             } catch (error) {
-                console.error('Erro ao carregar instâncias:', error);
+                document.getElementById('eventsTableBody').innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px; color: #dc2626;">Erro ao carregar</td></tr>';
             }
         }
-        
-        // Função para carregar logs
-        async function refreshLogs() {
-            try {
-                const response = await fetch(`${API_URL}/api/logs?limit=100`);
-                const data = await response.json();
-                
-                if (data.success) {
-                    renderLogs(data.data);
-                }
-            } catch (error) {
-                console.error('Erro ao carregar logs:', error);
-            }
-        }
-        
-        // Função para renderizar logs
-        function renderLogs(logs) {
-            const container = document.getElementById('logsContainer');
-            
-            if (logs.length === 0) {
-                container.innerHTML = `
-                    <p style="text-align: center; color: #6c757d;">
-                        Nenhum log disponível
-                    </p>
-                `;
+
+        function renderEvents(events) {
+            const tbody = document.getElementById('eventsTableBody');
+            if (events.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px; color: #6b7280;">Nenhuma conversa</td></tr>';
                 return;
             }
-            
-            container.innerHTML = logs.map(log => {
-                const timestamp = new Date(log.timestamp);
-                const timeStr = timestamp.toLocaleString('pt-BR');
-                
-                return `
-                    <div class="log-item">
-                        <div class="log-timestamp">${timeStr}</div>
-                        <span class="log-type ${log.type}">${log.type}</span>
-                        <span class="log-message">${log.message}</span>
-                    </div>
-                `;
-            }).join('');
+            let html = '';
+            events.forEach(event => {
+                let statusBadge = event.canceled ? '<span class="badge badge-secondary">Cancelado</span>' :
+                    event.completed ? '<span class="badge badge-success">Concluído</span>' :
+                    event.waiting_for_response ? '<span class="badge badge-warning">Aguardando</span>' :
+                    '<span class="badge badge-info">Enviando</span>';
+                const createdAt = new Date(event.createdAt).toLocaleString('pt-BR');
+                html += `<tr>
+                    <td>${event.customerName}</td>
+                    <td>${event.phone}</td>
+                    <td><code>${event.phoneKey}</code></td>
+                    <td><span class="badge badge-info">${event.productType}</span></td>
+                    <td>${event.funnelId}</td>
+                    <td>${event.stepIndex + 1}</td>
+                    <td>${statusBadge}</td>
+                    <td>${event.stickyInstance || '-'}</td>
+                    <td>${createdAt}</td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
         }
-        
-        // Inicialização
-        document.addEventListener('DOMContentLoaded', () => {
-            updateStats();
-            refreshConversations();
-            
-            // Atualiza a cada 5 segundos
-            setInterval(() => {
-                updateStats();
-                
-                // Atualiza a aba ativa
-                const activeTab = document.querySelector('.tab-panel.active').id;
-                if (activeTab === 'conversations') {
-                    refreshConversations();
-                } else if (activeTab === 'logs') {
-                    refreshLogs();
+
+        async function loadDashboard() {
+            try {
+                const response = await fetch('/api/dashboard');
+                const result = await response.json();
+                if (result.success) {
+                    document.getElementById('statsConversations').textContent = result.data.active_conversations || 0;
+                    document.getElementById('statsPix').textContent = result.data.pending_pix || 0;
+                    document.getElementById('statsFunnels').textContent = result.data.total_funnels || 0;
                 }
-            }, 5000);
+            } catch (error) {
+                console.error('Erro dashboard:', error);
+            }
+        }
+
+        async function exportFunnels() {
+            try {
+                const response = await fetch('/api/funnels/export');
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `kirvano-backup-${new Date().toISOString().split('T')[0]}.json`;
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    alert('✅ Backup salvo!');
+                }
+            } catch (error) {
+                alert('❌ Erro ao exportar');
+            }
+        }
+
+        function importFunnels() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = async function(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                try {
+                    const text = await file.text();
+                    const data = JSON.parse(text);
+                    if (!data.funnels) {
+                        alert('❌ Arquivo inválido!');
+                        return;
+                    }
+                    if (!confirm(`Restaurar ${data.funnels.length} funis?\n\n⚠️ Vai sobrescrever os atuais!`)) return;
+                    const response = await fetch('/api/funnels/import', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(data)
+                    });
+                    const result = await response.json();
+                    if (result.success) {
+                        alert(`✅ ${result.imported} funis importados!\n⚠️ ${result.skipped} ignorados`);
+                        await loadFunnelsFromServer();
+                        loadFunnelEditor();
+                    }
+                } catch (error) {
+                    alert('❌ Erro: ' + error.message);
+                }
+            };
+            input.click();
+        }
+
+        async function loadFunnelsFromServer() {
+            try {
+                const response = await fetch('/api/funnels');
+                const result = await response.json();
+                if (result.success) {
+                    Object.keys(funnelsData).forEach(key => {
+                        funnelsData[key] = { id: key, name: funnelsData[key].name, steps: [] };
+                    });
+                    result.data.forEach(funnel => {
+                        if (funnelsData[funnel.id]) funnelsData[funnel.id] = funnel;
+                    });
+                    return true;
+                }
+                return false;
+            } catch (error) {
+                return false;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadDashboard();
+            loadFunnelsFromServer().then(() => loadFunnelEditor());
+            setInterval(() => {
+                loadDashboard();
+                if (document.getElementById('events').classList.contains('active')) loadEvents();
+            }, 10000);
         });
     </script>
 </body>
