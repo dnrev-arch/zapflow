@@ -1,21 +1,28 @@
 {
-  "name": "kirvano-system",
-  "version": "1.0.0",
-  "description": "Sistema de funis Kirvano com fallback Evolution API",
+  "name": "whatsapp-automation-v7",
+  "version": "7.0.0",
+  "description": "Sistema de Automação WhatsApp com Evolution API v7.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "nodemon server.js"
   },
+  "keywords": [
+    "whatsapp",
+    "evolution",
+    "automation",
+    "webhook",
+    "pix"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
-    "axios": "^1.6.0",
-    "uuid": "^9.0.1"
+    "axios": "^1.6.2",
+    "uuid": "^9.0.1",
+    "dotenv": "^16.3.1"
   },
-  "engines": {
-    "node": ">=16.0.0"
-  },
-  "keywords": ["kirvano", "evolution", "whatsapp", "funis"],
-  "author": "Kirvano System",
-  "license": "ISC"
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
 }
