@@ -1152,7 +1152,7 @@ app.post('/webhook/kirvano', async (req, res) => {
     }
 });
 
-app.post('/webhook/perfect', async (req, res) => {
+app.post('/webhook/perfectpay', async (req, res) => {
     const requestId = Date.now() + Math.random();
     
     try {
