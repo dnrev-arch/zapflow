@@ -1968,7 +1968,7 @@ app.listen(PORT, async () => {
     console.log('');
     console.log('✅ NOVIDADES V6.0:');
     console.log('  1. ✅ Frases de gatilho do CLIENTE funcionando');
-    console.log('  2. ✅ 15 instâncias (GABY01-GABY15)');
+    console.log('  2. ✅ 15 instâncias (D01-D15)');
     console.log('  3. ✅ Sistema de logs completo');
     console.log('  4. ✅ Webhooks Kirvano e PerfectPay');
     console.log('  5. 🆕 DISPARO MANUAL simplificado (em breve)');
