@@ -17,19 +17,19 @@ const PHRASES_FILE = path.join(__dirname, 'data', 'phrases.json');
 const LOGS_FILE = path.join(__dirname, 'data', 'logs.json');
 const CAMPAIGNS_FILE = path.join(__dirname, 'data', 'campaigns.json');
 
-// Produtos CS e FAB
+// Produtos CS e FB
 const PRODUCT_MAPPING = {
     'e79419d3-5b71-4f90-954b-b05e94de8d98': 'CS',
     '06539c76-40ee-4811-8351-ab3f5ccc4437': 'CS',
     '564bb9bb-718a-4e8b-a843-a2da62f616f0': 'CS',
-    '668a73bc-2fca-4f12-9331-ef945181cd5c': 'FAB'
+    '668a73bc-2fca-4f12-9331-ef945181cd5c': 'FB'
 };
 
 // Códigos dos planos PerfectPay
 const PERFECTPAY_PLANS = {
     'PPLQQNCF7': 'CS',
     'PPLQQNCF8': 'CS',
-    'PPLQQMOVD': 'FAB'
+    'PPLQQMOVD': 'FB'
 };
 
 const INSTANCES = [
@@ -49,9 +49,8 @@ let funis = new Map();
 let lastSuccessfulInstanceIndex = -1;
 let phraseTriggers = new Map();
 let phraseCooldowns = new Map();
-let batchCampaigns = new Map();
-let campaignTimers = new Map();
-let sentMessages = new Map();
+let batchCampaigns = new Map(); // Campanhas de envio em lote
+let campaignTimers = new Map(); // Timers ativos das campanhas
 
 const LOG_LEVELS = {
     DEBUG: 'DEBUG',
@@ -65,8 +64,8 @@ const LOG_LEVELS = {
 const defaultFunnels = {
     'CS_APROVADA': { id: 'CS_APROVADA', name: 'CS - Compra Aprovada', steps: [] },
     'CS_PIX': { id: 'CS_PIX', name: 'CS - PIX Pendente', steps: [] },
-    'FAB_APROVADA': { id: 'FAB_APROVADA', name: 'FAB - Compra Aprovada', steps: [] },
-    'FAB_PIX': { id: 'FAB_PIX', name: 'FAB - PIX Pendente', steps: [] }
+    'FB_APROVADA': { id: 'FB_APROVADA', name: 'FB - Compra Aprovada', steps: [] },
+    'FB_PIX': { id: 'FB_PIX', name: 'FB - PIX Pendente', steps: [] }
 };
 
 // ============ SISTEMA DE LOGS MELHORADO ============
@@ -178,7 +177,7 @@ async function loadFunnelsFromFile() {
         const funnelsArray = JSON.parse(data);
         funis.clear();
         funnelsArray.forEach(funnel => {
-            if (funnel.id.startsWith('CS_') || funnel.id.startsWith('FAB_') || funnel.id.startsWith('PHRASE_')) {
+            if (funnel.id.startsWith('CS_') || funnel.id.startsWith('FB_') || funnel.id.startsWith('PHRASE_')) {
                 funis.set(funnel.id, funnel);
             }
         });
@@ -621,7 +620,7 @@ async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFir
 }
 
 async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, amount) {
-    const funnelId = productType === 'CS' ? 'CS_PIX' : 'FAB_PIX';
+    const funnelId = productType === 'CS' ? 'CS_PIX' : 'FB_PIX';
     
     const conversation = {
         phoneKey,
@@ -639,13 +638,10 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
         lastReply: null,
         canceled: false,
         completed: false,
-        source: 'kirvano',
-        sentSteps: []
+        source: 'kirvano'
     };
     
     conversations.set(phoneKey, conversation);
-    sentMessages.set(phoneKey, new Set());
-    
     addLog('PIX_WAITING_CREATED', `PIX em espera`, 
         { phoneKey, orderCode, productType }, LOG_LEVELS.INFO);
     
@@ -695,7 +691,7 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
             { phoneKey }, LOG_LEVELS.INFO);
     }
     
-    const funnelId = productType === 'CS' ? 'CS_APROVADA' : 'FAB_APROVADA';
+    const funnelId = productType === 'CS' ? 'CS_APROVADA' : 'FB_APROVADA';
     
     const approvedConv = {
         phoneKey,
@@ -713,14 +709,11 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
         canceled: false,
         completed: false,
         transferredFromPix: true,
-        previousFunnel: productType === 'CS' ? 'CS_PIX' : 'FAB_PIX',
-        source: 'kirvano',
-        sentSteps: []
+        previousFunnel: productType === 'CS' ? 'CS_PIX' : 'FB_PIX',
+        source: 'kirvano'
     };
     
     conversations.set(phoneKey, approvedConv);
-    sentMessages.set(phoneKey, new Set());
-    
     addLog('TRANSFER_PIX_TO_APPROVED', 'Transferido para funil aprovado', 
         { phoneKey, startingStep, productType }, LOG_LEVELS.INFO);
     
@@ -743,13 +736,10 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
         lastReply: null,
         canceled: false,
         completed: false,
-        source,
-        sentSteps: []
+        source
     };
     
     conversations.set(phoneKey, conversation);
-    sentMessages.set(phoneKey, new Set());
-    
     addLog('FUNNEL_START', `Iniciando funil ${funnelId}`, 
         { phoneKey, orderCode, source }, LOG_LEVELS.INFO);
     
@@ -797,34 +787,11 @@ async function sendStep(phoneKey) {
         return;
     }
     
-    const stepKey = `${conversation.funnelId}_${conversation.stepIndex}`;
-    const sentStepsSet = sentMessages.get(phoneKey) || new Set();
-    
-    if (sentStepsSet.has(stepKey)) {
-        addLog('STEP_ALREADY_SENT', `Step já foi enviado, pulando`, 
-            { phoneKey, stepIndex: conversation.stepIndex }, LOG_LEVELS.WARNING);
-        
-        if (step.waitForReply) {
-            return;
-        }
-        
-        await advanceConversation(phoneKey, null, 'duplicate_skip');
-        return;
-    }
-    
     const isFirstMessage = conversation.stepIndex === 0 && !conversation.lastSystemMessage;
     
     addLog('STEP_SEND_START', `Enviando passo ${conversation.stepIndex}/${funnel.steps.length - 1}`, 
         { phoneKey, funnelId: conversation.funnelId, stepType: step.type, 
           waitForReply: step.waitForReply }, LOG_LEVELS.INFO);
-    
-    if (step.waitForReply && step.type !== 'delay') {
-        conversation.waiting_for_response = true;
-        conversations.set(phoneKey, conversation);
-        
-        addLog('WAIT_FLAG_SET_BEFORE_SEND', 'Flag setado ANTES do envio', 
-            { phoneKey, stepIndex: conversation.stepIndex }, LOG_LEVELS.DEBUG);
-    }
     
     let result = { success: true };
     
@@ -858,24 +825,14 @@ async function sendStep(phoneKey) {
     }
     
     if (result.success) {
-        sentStepsSet.add(stepKey);
-        sentMessages.set(phoneKey, sentStepsSet);
-        
         conversation.lastSystemMessage = new Date();
         
-        if (!conversation.sentSteps) conversation.sentSteps = [];
-        conversation.sentSteps.push({
-            stepIndex: conversation.stepIndex,
-            sentAt: new Date(),
-            stepId: step.id
-        });
-        
         if (step.waitForReply && step.type !== 'delay') {
+            conversation.waiting_for_response = true;
             conversations.set(phoneKey, conversation);
             
             addLog('STEP_WAITING_REPLY', `Aguardando resposta do cliente`, 
                 { phoneKey, stepIndex: conversation.stepIndex }, LOG_LEVELS.INFO);
-    
         } else {
             conversations.set(phoneKey, conversation);
             
@@ -942,8 +899,10 @@ async function advanceConversation(phoneKey, replyText, reason) {
     await sendStep(phoneKey);
 }
 
+// ============ CAMPANHAS EM LOTE ============
+
 async function sendSingleFunnel(phone, funnelId, instanceName) {
-    const phoneKey = extractPhoneKey(phone);
+    const phoneKey = uuidv4();
     const normalizedPhone = phone.startsWith('55') ? phone : '55' + phone;
     const remoteJid = normalizedPhone + '@s.whatsapp.net';
     
@@ -951,8 +910,10 @@ async function sendSingleFunnel(phone, funnelId, instanceName) {
         addLog('SINGLE_SEND_START', `Enviando funil para ${phone}`, 
             { phone, funnelId, instanceName }, LOG_LEVELS.INFO);
         
+        // Setar sticky instance
         stickyInstances.set(phoneKey, instanceName);
         
+        // Iniciar funil
         await startFunnel(
             phoneKey,
             remoteJid,
@@ -984,12 +945,14 @@ async function processCampaign(campaignId) {
         return;
     }
     
+    // Verificar se há leads pendentes
     if (campaign.progress.sent >= campaign.leads.length) {
         campaign.status = 'completed';
         campaign.progress.completedAt = new Date().toISOString();
         batchCampaigns.set(campaignId, campaign);
         await saveCampaignsToFile();
         
+        // Limpar timer
         if (campaignTimers.has(campaignId)) {
             clearTimeout(campaignTimers.get(campaignId));
             campaignTimers.delete(campaignId);
@@ -1000,6 +963,7 @@ async function processCampaign(campaignId) {
         return;
     }
     
+    // Enviar próximo lead
     const nextPhone = campaign.leads[campaign.progress.sent];
     const phoneKey = extractPhoneKey(nextPhone);
     
@@ -1031,6 +995,7 @@ async function processCampaign(campaignId) {
     batchCampaigns.set(campaignId, campaign);
     await saveCampaignsToFile();
     
+    // Agendar próximo envio
     if (campaign.progress.sent < campaign.leads.length && campaign.status === 'running') {
         const delayMin = campaign.delayMin + Math.random() * (campaign.delayMax - campaign.delayMin);
         const delayMs = delayMin * 60 * 1000;
@@ -1065,6 +1030,7 @@ function startCampaign(campaignId) {
     addLog('CAMPAIGN_STARTED', `Campanha iniciada: ${campaign.name}`, 
         { campaignId, totalLeads: campaign.leads.length }, LOG_LEVELS.INFO);
     
+    // Iniciar processamento imediatamente
     processCampaign(campaignId);
     
     return { success: true };
@@ -1082,6 +1048,7 @@ function pauseCampaign(campaignId) {
     batchCampaigns.set(campaignId, campaign);
     saveCampaignsToFile();
     
+    // Limpar timer
     if (campaignTimers.has(campaignId)) {
         clearTimeout(campaignTimers.get(campaignId));
         campaignTimers.delete(campaignId);
@@ -1143,7 +1110,7 @@ app.post('/webhook/kirvano', async (req, res) => {
         
         if (isApproved) {
             const existingConv = conversations.get(phoneKey);
-            const isPixFunnel = existingConv && (existingConv.funnelId === 'CS_PIX' || existingConv.funnelId === 'FAB_PIX');
+            const isPixFunnel = existingConv && (existingConv.funnelId === 'CS_PIX' || existingConv.funnelId === 'FB_PIX');
             
             if (isPixFunnel) {
                 addLog('KIRVANO_PIX_TO_APPROVED', 'Cliente pagou PIX', 
@@ -1159,7 +1126,7 @@ app.post('/webhook/kirvano', async (req, res) => {
                     pixTimeouts.delete(phoneKey);
                 }
                 
-                const funnelId = productType === 'CS' ? 'CS_APROVADA' : 'FAB_APROVADA';
+                const funnelId = productType === 'CS' ? 'CS_APROVADA' : 'FB_APROVADA';
                 await startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerName, productType, totalPrice, 'kirvano');
             }
         } else if (isPix && event.includes('GENERATED')) {
@@ -1209,10 +1176,7 @@ app.post('/webhook/perfectpay', async (req, res) => {
         }
         
         const productType = PERFECTPAY_PLANS[planCode];
-        
-        // 🆕 CORREÇÃO: Tratamento correto do telefone
-        const cleanArea = phoneArea.startsWith('55') ? phoneArea.substring(2) : phoneArea;
-        const fullPhone = phoneNumber.length >= 11 ? phoneNumber : cleanArea + phoneNumber;
+        const fullPhone = phoneArea + phoneNumber;
         const phoneKey = extractPhoneKey(fullPhone);
         
         if (!phoneKey || phoneKey.length !== 8) {
@@ -1229,7 +1193,7 @@ app.post('/webhook/perfectpay', async (req, res) => {
         
         if (saleStatus === 'approved') {
             const existingConv = conversations.get(phoneKey);
-            const isPixFunnel = existingConv && (existingConv.funnelId === 'CS_PIX' || existingConv.funnelId === 'FAB_PIX');
+            const isPixFunnel = existingConv && (existingConv.funnelId === 'CS_PIX' || existingConv.funnelId === 'FB_PIX');
             
             if (isPixFunnel) {
                 addLog('PERFECTPAY_PIX_TO_APPROVED', 'Cliente pagou PIX', 
@@ -1245,7 +1209,7 @@ app.post('/webhook/perfectpay', async (req, res) => {
                     pixTimeouts.delete(phoneKey);
                 }
                 
-                const funnelId = productType === 'CS' ? 'CS_APROVADA' : 'FAB_APROVADA';
+                const funnelId = productType === 'CS' ? 'CS_APROVADA' : 'FB_APROVADA';
                 await startFunnel(phoneKey, remoteJid, funnelId, saleCode, customerName, productType, totalPrice, 'perfectpay');
             }
         } else if (saleStatus === 'pending') {
@@ -1274,26 +1238,13 @@ app.post('/webhook/perfectpay', async (req, res) => {
 app.post('/webhook/evolution', async (req, res) => {
     const requestId = Date.now() + Math.random();
     
-    console.log('='.repeat(70));
-    console.log('🔔 WEBHOOK EVOLUTION RECEBIDO:', new Date().toISOString());
-    console.log('Body completo:', JSON.stringify(req.body, null, 2));
-    console.log('='.repeat(70));
-    
     try {
         const data = req.body;
         const messageData = data.data;
         
-        if (!messageData) {
-            console.log('❌ SEM messageData no webhook!');
-            addLog('EVOLUTION_NO_DATA', 'Webhook sem messageData', 
-                { requestId, body: req.body }, LOG_LEVELS.WARNING);
-            return res.json({ success: true });
-        }
-        
-        if (!messageData.key) {
-            console.log('❌ SEM messageData.key no webhook!');
-            addLog('EVOLUTION_NO_KEY', 'Webhook sem key', 
-                { requestId, body: req.body }, LOG_LEVELS.WARNING);
+        if (!messageData || !messageData.key) {
+            addLog('EVOLUTION_NO_MESSAGE', 'Webhook sem dados', 
+                { requestId }, LOG_LEVELS.DEBUG);
             return res.json({ success: true });
         }
         
@@ -1305,13 +1256,6 @@ app.post('/webhook/evolution', async (req, res) => {
         const incomingPhone = remoteJid.replace('@s.whatsapp.net', '');
         const phoneKey = extractPhoneKey(incomingPhone);
         
-        console.log('📱 Mensagem processada:');
-        console.log('  Phone:', incomingPhone);
-        console.log('  PhoneKey:', phoneKey);
-        console.log('  FromMe:', fromMe);
-        console.log('  Text:', messageText);
-        console.log('  Instance:', instanceName);
-        
         addLog('EVOLUTION_MESSAGE_RECEIVED', `"${messageText.substring(0, 50)}"`, 
             { requestId, phoneKey, instanceName, fromMe }, LOG_LEVELS.INFO);
         
@@ -1321,6 +1265,7 @@ app.post('/webhook/evolution', async (req, res) => {
             return res.json({ success: true });
         }
         
+        // Ignorar mensagens enviadas por você (fromMe: true)
         if (fromMe) {
             return res.json({ success: true });
         }
@@ -1345,10 +1290,14 @@ app.post('/webhook/evolution', async (req, res) => {
                     const funnel = funis.get(triggeredFunnelId);
                     
                     if (funnel && funnel.steps && funnel.steps.length > 0) {
+                        // CRÍTICO: Setar sticky instance ANTES de iniciar o funil
                         if (instanceName && INSTANCES.includes(instanceName)) {
                             stickyInstances.set(phoneKey, instanceName);
                             addLog('STICKY_INSTANCE_SET_PHRASE', `Sticky fixada em: ${instanceName}`, 
                                 { requestId, phoneKey }, LOG_LEVELS.INFO);
+                        } else if (instanceName) {
+                            addLog('STICKY_INSTANCE_NOT_SET_PHRASE', `Instância não encontrada: "${instanceName}"`, 
+                                { requestId, phoneKey, availableInstances: INSTANCES }, LOG_LEVELS.WARNING);
                         }
                         
                         addLog('PHRASE_FUNNEL_START', `Iniciando funil ${triggeredFunnelId}`, 
@@ -1366,19 +1315,18 @@ app.post('/webhook/evolution', async (req, res) => {
                         );
                         
                         return res.json({ success: true, triggered: true });
+                    } else {
+                        addLog('PHRASE_FUNNEL_EMPTY', `Funil ${triggeredFunnelId} vazio`, 
+                            { requestId, phoneKey }, LOG_LEVELS.ERROR);
                     }
                 }
             }
             
-            if (!conversation || conversation.canceled) {
-                addLog('EVOLUTION_NO_ACTIVE_CONV', 'Sem conversa ativa', 
-                    { requestId, phoneKey }, LOG_LEVELS.DEBUG);
-                return res.json({ success: true });
-            }
-            
-            if (!conversation.waiting_for_response) {
+            if (!conversation || conversation.canceled || !conversation.waiting_for_response) {
                 addLog('EVOLUTION_NOT_WAITING', 'Não aguardando resposta', 
-                    { requestId, phoneKey, stepIndex: conversation.stepIndex }, LOG_LEVELS.DEBUG);
+                    { requestId, phoneKey, hasConv: !!conversation, 
+                      canceled: conversation?.canceled, 
+                      waiting: conversation?.waiting_for_response }, LOG_LEVELS.DEBUG);
                 return res.json({ success: true });
             }
             
@@ -1405,8 +1353,6 @@ app.post('/webhook/evolution', async (req, res) => {
         res.status(500).json({ success: false, error: error.message });
     }
 });
-
-// ============ API ROUTES ============
 
 app.get('/api/dashboard', (req, res) => {
     const instanceUsage = {};
@@ -1507,7 +1453,7 @@ app.get('/api/logs/export', (req, res) => {
 app.get('/api/funnels', (req, res) => {
     const funnelsList = Array.from(funis.values()).map(funnel => ({
         ...funnel,
-        isDefault: funnel.id.startsWith('CS_') || funnel.id.startsWith('FAB_'),
+        isDefault: funnel.id.startsWith('CS_') || funnel.id.startsWith('FB_'),
         stepCount: funnel.steps.length
     }));
     res.json({ success: true, data: funnelsList });
@@ -1520,8 +1466,8 @@ app.post('/api/funnels', (req, res) => {
         return res.status(400).json({ success: false, error: 'Campos obrigatórios faltando' });
     }
     
-    if (!funnel.id.startsWith('CS_') && !funnel.id.startsWith('FAB_') && !funnel.id.startsWith('PHRASE_')) {
-        return res.status(400).json({ success: false, error: 'Apenas funis CS, FAB e PHRASE permitidos' });
+    if (!funnel.id.startsWith('CS_') && !funnel.id.startsWith('FB_') && !funnel.id.startsWith('PHRASE_')) {
+        return res.status(400).json({ success: false, error: 'Apenas funis CS, FB e PHRASE permitidos' });
     }
     
     funis.set(funnel.id, funnel);
@@ -1535,8 +1481,8 @@ app.post('/api/funnels', (req, res) => {
 app.delete('/api/funnels/:id', (req, res) => {
     const funnelId = req.params.id;
     
-    if (funnelId.startsWith('CS_') || funnelId.startsWith('FAB_')) {
-        return res.status(400).json({ success: false, error: 'Não pode excluir funis padrão CS/FAB' });
+    if (funnelId.startsWith('CS_') || funnelId.startsWith('FB_')) {
+        return res.status(400).json({ success: false, error: 'Não pode excluir funis padrão CS/FB' });
     }
     
     if (funis.has(funnelId)) {
@@ -1557,7 +1503,7 @@ app.get('/api/funnels/export', (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(JSON.stringify({
-            version: '5.5',
+            version: '5.3',
             exportDate: new Date().toISOString(),
             totalFunnels: funnelsArray.length,
             funnels: funnelsArray
@@ -1581,7 +1527,7 @@ app.post('/api/funnels/import', (req, res) => {
         
         importData.funnels.forEach(funnel => {
             if (funnel.id && funnel.name && funnel.steps && 
-                (funnel.id.startsWith('CS_') || funnel.id.startsWith('FAB_') || funnel.id.startsWith('PHRASE_'))) {
+                (funnel.id.startsWith('CS_') || funnel.id.startsWith('FB_') || funnel.id.startsWith('PHRASE_'))) {
                 funis.set(funnel.id, funnel);
                 importedCount++;
             } else {
@@ -1685,6 +1631,9 @@ app.delete('/api/phrases/:phrase', (req, res) => {
     }
 });
 
+// ============ API ENVIO MANUAL ============
+
+// Envio único
 app.post('/api/send-single', async (req, res) => {
     try {
         const { phone, funnelId, instanceName } = req.body;
@@ -1732,23 +1681,27 @@ app.post('/api/send-single', async (req, res) => {
     }
 });
 
+// Listar campanhas
 app.get('/api/campaigns', (req, res) => {
     const campaignsList = Array.from(batchCampaigns.values()).map(campaign => ({
         ...campaign,
         leadsCount: campaign.leads.length,
-        leads: undefined
+        leads: undefined // Não enviar lista completa
     }));
     res.json({ success: true, data: campaignsList });
 });
 
+// Função para validar lista de telefones
 function validatePhoneList(phoneList) {
     const phones = phoneList.split('\n').map(p => p.trim()).filter(p => p.length > 0);
     const validPhones = [];
     const invalidPhones = [];
     
     phones.forEach(phone => {
+        // Remover caracteres não numéricos
         const cleanPhone = phone.replace(/\D/g, '');
         
+        // Validar: deve ter entre 10 e 13 dígitos
         if (cleanPhone.length >= 10 && cleanPhone.length <= 13) {
             validPhones.push(cleanPhone);
         } else {
@@ -1759,6 +1712,7 @@ function validatePhoneList(phoneList) {
     return { validPhones, invalidPhones };
 }
 
+// Criar campanha
 app.post('/api/campaigns', async (req, res) => {
     try {
         const { name, phoneList, funnelId, instanceName, delayMin, delayMax } = req.body;
@@ -1784,6 +1738,7 @@ app.post('/api/campaigns', async (req, res) => {
             });
         }
         
+        // Validar lista de telefones
         const { validPhones, invalidPhones } = validatePhoneList(phoneList);
         
         if (validPhones.length === 0) {
@@ -1835,6 +1790,7 @@ app.post('/api/campaigns', async (req, res) => {
     }
 });
 
+// Iniciar campanha
 app.post('/api/campaigns/:id/start', (req, res) => {
     const result = startCampaign(req.params.id);
     
@@ -1845,6 +1801,7 @@ app.post('/api/campaigns/:id/start', (req, res) => {
     }
 });
 
+// Pausar campanha
 app.post('/api/campaigns/:id/pause', (req, res) => {
     const result = pauseCampaign(req.params.id);
     
@@ -1855,6 +1812,7 @@ app.post('/api/campaigns/:id/pause', (req, res) => {
     }
 });
 
+// Excluir campanha
 app.delete('/api/campaigns/:id', async (req, res) => {
     const campaignId = req.params.id;
     const campaign = batchCampaigns.get(campaignId);
@@ -1866,6 +1824,7 @@ app.delete('/api/campaigns/:id', async (req, res) => {
         });
     }
     
+    // Pausar primeiro se estiver rodando
     if (campaign.status === 'running') {
         pauseCampaign(campaignId);
     }
@@ -1879,6 +1838,7 @@ app.delete('/api/campaigns/:id', async (req, res) => {
     res.json({ success: true, message: 'Campanha excluída' });
 });
 
+// Obter detalhes de uma campanha
 app.get('/api/campaigns/:id', (req, res) => {
     const campaign = batchCampaigns.get(req.params.id);
     
@@ -1933,6 +1893,7 @@ app.get('/api/debug/evolution', async (req, res) => {
         pix_timeouts_active: pixTimeouts.size,
         webhook_locks_active: webhookLocks.size,
         phrase_triggers_count: phraseTriggers.size,
+        manual_triggers_count: manualTriggers.size,
         total_logs: logs.length,
         test_results: []
     };
@@ -1982,8 +1943,6 @@ app.get('/logs.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'logs.html'));
 });
 
-// ============ INICIALIZAÇÃO ============
-
 async function initializeData() {
     console.log('🔄 Carregando dados...');
     await loadFunnelsFromFile();
@@ -2001,28 +1960,32 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO SYSTEM V5.5 - VERSÃO FINAL CORRIGIDA');
+    console.log('🚀 KIRVANO SYSTEM V5.3 - SISTEMA COMPLETO DE FUNIS');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
     console.log('Instâncias:', INSTANCES.length);
     console.log('');
-    console.log('✅ CORREÇÕES V5.5:');
-    console.log('  1. ✅ Timeout de 30s REMOVIDO');
-    console.log('  2. ✅ Sistema só avança SE o cliente responder');
-    console.log('  3. ✅ Formatação de telefone PerfectPay CORRIGIDA');
-    console.log('  4. ✅ Logs detalhados do webhook Evolution');
-    console.log('  5. ✅ Proteção contra duplicação de mensagens');
-    console.log('  6. ✅ Sticky instance mantida corretamente');
+    console.log('✅ NOVIDADES V6.0:');
+    console.log('  1. ✅ Frases de gatilho do CLIENTE funcionando');
+    console.log('  2. ✅ 15 instâncias (D01-D15)');
+    console.log('  3. ✅ Sistema de logs completo');
+    console.log('  4. ✅ Webhooks Kirvano e PerfectPay');
+    console.log('  5. 🆕 DISPARO MANUAL simplificado (em breve)');
     console.log('');
     console.log('📡 Endpoints:');
-    console.log('  POST /webhook/kirvano       - Eventos Kirvano');
-    console.log('  POST /webhook/perfectpay    - Eventos PerfectPay');
-    console.log('  POST /webhook/evolution     - Mensagens WhatsApp');
+    console.log('  POST /webhook/kirvano           - Eventos Kirvano');
+    console.log('  POST /webhook/perfect           - Eventos PerfectPay');
+    console.log('  POST /webhook/evolution         - Mensagens WhatsApp');
+    console.log('  GET  /api/manual-triggers       - Listar frases manuais');
+    console.log('  POST /api/manual-triggers       - Criar frase manual');
+    console.log('  PUT  /api/manual-triggers/:id   - Atualizar frase manual');
+    console.log('  DELETE /api/manual-triggers/:id - Deletar frase manual');
     console.log('');
     console.log('🌐 Frontend:');
-    console.log('  http://localhost:' + PORT + '           - Dashboard');
-    console.log('  http://localhost:' + PORT + '/logs.html - Logs');
+    console.log('  http://localhost:' + PORT + '           - Dashboard principal');
+    console.log('  http://localhost:' + PORT + '/logs.html - Sistema de logs');
+    console.log('  http://localhost:' + PORT + '/teste.html - Simulador de testes');
     console.log('='.repeat(70));
     
     await initializeData();
