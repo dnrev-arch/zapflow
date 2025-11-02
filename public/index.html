@@ -629,11 +629,11 @@
                             <label>Selecione o Funil:</label>
                             <select id="funnelSelect" onchange="loadFunnelEditor()">
                                 <option value="">-- Selecione --</option>
-                                <optgroup label="Funis Kirvano (CS/FAB)">
+                                <optgroup label="Funis Kirvano (CS/FB)">
                                     <option value="CS_APROVADA">CS - Compra Aprovada</option>
                                     <option value="CS_PIX">CS - PIX Pendente</option>
-                                    <option value="FAB_APROVADA">FAB - Compra Aprovada</option>
-                                    <option value="FAB_PIX">FAB - PIX Pendente</option>
+                                    <option value="FB_APROVADA">FB - Compra Aprovada</option>
+                                    <option value="FB_PIX">FB - PIX Pendente</option>
                                 </optgroup>
                                 <optgroup label="Funis por Frase" id="phraseFunnelsGroup">
                                 </optgroup>
@@ -1068,7 +1068,7 @@
             manualModalFunnel.innerHTML = '<option value="">-- Selecione um funil --</option>';
             
             Object.values(allFunnels).forEach(funnel => {
-                if (funnel.id.startsWith('PHRASE_') || funnel.id.startsWith('CS_') || funnel.id.startsWith('FAB_')) {
+                if (funnel.id.startsWith('PHRASE_') || funnel.id.startsWith('CS_') || funnel.id.startsWith('FB_')) {
                     const option = document.createElement('option');
                     option.value = funnel.id;
                     option.textContent = funnel.name;
@@ -1087,7 +1087,7 @@
                 singleSendFunnel.innerHTML = '<option value="">Selecione um funil</option>';
                 
                 Object.values(allFunnels).forEach(funnel => {
-                    if (funnel.id.startsWith('PHRASE_') || funnel.id.startsWith('CS_') || funnel.id.startsWith('FAB_')) {
+                    if (funnel.id.startsWith('PHRASE_') || funnel.id.startsWith('CS_') || funnel.id.startsWith('FB_')) {
                         const option = document.createElement('option');
                         option.value = funnel.id;
                         option.textContent = funnel.name;
