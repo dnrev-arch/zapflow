@@ -1022,14 +1022,12 @@ async function processCampaign(campaignId) {
         return;
     }
     
-    // Verificar se há leads pendentes
     if (campaign.progress.sent >= campaign.leads.length) {
         campaign.status = 'completed';
         campaign.progress.completedAt = new Date().toISOString();
         batchCampaigns.set(campaignId, campaign);
         await saveCampaignsToFile();
         
-        // Limpar timer
         if (campaignTimers.has(campaignId)) {
             clearTimeout(campaignTimers.get(campaignId));
             campaignTimers.delete(campaignId);
@@ -1040,7 +1038,6 @@ async function processCampaign(campaignId) {
         return;
     }
     
-    // Enviar próximo lead
     const nextPhone = campaign.leads[campaign.progress.sent];
     const phoneKey = extractPhoneKey(nextPhone);
     
@@ -1072,7 +1069,6 @@ async function processCampaign(campaignId) {
     batchCampaigns.set(campaignId, campaign);
     await saveCampaignsToFile();
     
-    // Agendar próximo envio
     if (campaign.progress.sent < campaign.leads.length && campaign.status === 'running') {
         const delayMin = campaign.delayMin + Math.random() * (campaign.delayMax - campaign.delayMin);
         const delayMs = delayMin * 60 * 1000;
@@ -1107,7 +1103,6 @@ function startCampaign(campaignId) {
     addLog('CAMPAIGN_STARTED', `Campanha iniciada: ${campaign.name}`, 
         { campaignId, totalLeads: campaign.leads.length }, LOG_LEVELS.INFO);
     
-    // Iniciar processamento imediatamente
     processCampaign(campaignId);
     
     return { success: true };
@@ -1125,7 +1120,6 @@ function pauseCampaign(campaignId) {
     batchCampaigns.set(campaignId, campaign);
     saveCampaignsToFile();
     
-    // Limpar timer
     if (campaignTimers.has(campaignId)) {
         clearTimeout(campaignTimers.get(campaignId));
         campaignTimers.delete(campaignId);
@@ -1343,7 +1337,6 @@ app.post('/webhook/evolution', async (req, res) => {
             return res.json({ success: true });
         }
         
-        // Ignorar mensagens enviadas por você (fromMe: true)
         if (fromMe) {
             return res.json({ success: true });
         }
@@ -1394,7 +1387,6 @@ app.post('/webhook/evolution', async (req, res) => {
                 }
             }
             
-            // 🆕 MELHORADO: Verificação mais robusta
             if (!conversation || conversation.canceled) {
                 addLog('EVOLUTION_NO_ACTIVE_CONV', 'Sem conversa ativa', 
                     { requestId, phoneKey }, LOG_LEVELS.DEBUG);
@@ -1431,8 +1423,7 @@ app.post('/webhook/evolution', async (req, res) => {
     }
 });
 
-// Resto das rotas (dashboard, logs, funis, frases, campanhas) permanecem IGUAIS ao original
-// Por brevidade, não vou copiar todas aqui, mas estão incluídas no arquivo completo
+// ============ API ROUTES ============
 
 app.get('/api/dashboard', (req, res) => {
     const instanceUsage = {};
@@ -1471,8 +1462,544 @@ app.get('/api/dashboard', (req, res) => {
     });
 });
 
-// [Incluir todas as outras rotas do arquivo original aqui...]
-// Por brevidade, não copiei tudo, mas no arquivo final todas as rotas estão presentes
+app.get('/api/logs', (req, res) => {
+    const limit = parseInt(req.query.limit) || 100;
+    const level = req.query.level;
+    const type = req.query.type;
+    const phoneKey = req.query.phoneKey;
+    
+    let filteredLogs = logs;
+    
+    if (level) {
+        filteredLogs = filteredLogs.filter(log => log.level === level);
+    }
+    
+    if (type) {
+        filteredLogs = filteredLogs.filter(log => log.type.includes(type));
+    }
+    
+    if (phoneKey) {
+        filteredLogs = filteredLogs.filter(log => 
+            log.data && log.data.includes(phoneKey)
+        );
+    }
+    
+    const recentLogs = filteredLogs.slice(0, limit).map(log => ({
+        id: log.id,
+        timestamp: log.timestamp,
+        type: log.type,
+        level: log.level,
+        message: log.message,
+        data: log.data
+    }));
+    
+    res.json({ 
+        success: true, 
+        data: recentLogs,
+        total: filteredLogs.length,
+        filters: { level, type, phoneKey, limit }
+    });
+});
+
+app.get('/api/logs/export', (req, res) => {
+    const format = req.query.format || 'json';
+    const filename = `kirvano-logs-${new Date().toISOString().split('T')[0]}`;
+    
+    if (format === 'json') {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}.json"`);
+        res.send(JSON.stringify(logs, null, 2));
+    } else if (format === 'txt') {
+        res.setHeader('Content-Type', 'text/plain');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}.txt"`);
+        const txtContent = logs.map(log => 
+            `[${log.timestamp}] [${log.level}] ${log.type}: ${log.message}${log.data ? '\n  Data: ' + log.data : ''}`
+        ).join('\n\n');
+        res.send(txtContent);
+    } else {
+        res.status(400).json({ success: false, error: 'Formato inválido' });
+    }
+});
+
+app.get('/api/funnels', (req, res) => {
+    const funnelsList = Array.from(funis.values()).map(funnel => ({
+        ...funnel,
+        isDefault: funnel.id.startsWith('CS_') || funnel.id.startsWith('FAB_'),
+        stepCount: funnel.steps.length
+    }));
+    res.json({ success: true, data: funnelsList });
+});
+
+app.post('/api/funnels', (req, res) => {
+    const funnel = req.body;
+    
+    if (!funnel.id || !funnel.name || !funnel.steps) {
+        return res.status(400).json({ success: false, error: 'Campos obrigatórios faltando' });
+    }
+    
+    if (!funnel.id.startsWith('CS_') && !funnel.id.startsWith('FAB_') && !funnel.id.startsWith('PHRASE_')) {
+        return res.status(400).json({ success: false, error: 'Apenas funis CS, FAB e PHRASE permitidos' });
+    }
+    
+    funis.set(funnel.id, funnel);
+    addLog('FUNNEL_SAVED', `Funil ${funnel.id} salvo`, 
+        { funnelId: funnel.id, steps: funnel.steps.length }, LOG_LEVELS.INFO);
+    saveFunnelsToFile();
+    
+    res.json({ success: true, message: 'Funil salvo', data: funnel });
+});
+
+app.delete('/api/funnels/:id', (req, res) => {
+    const funnelId = req.params.id;
+    
+    if (funnelId.startsWith('CS_') || funnelId.startsWith('FAB_')) {
+        return res.status(400).json({ success: false, error: 'Não pode excluir funis padrão CS/FAB' });
+    }
+    
+    if (funis.has(funnelId)) {
+        funis.delete(funnelId);
+        addLog('FUNNEL_DELETED', `Funil ${funnelId} excluído`, null, LOG_LEVELS.INFO);
+        saveFunnelsToFile();
+        res.json({ success: true, message: 'Funil excluído' });
+    } else {
+        res.status(404).json({ success: false, error: 'Funil não encontrado' });
+    }
+});
+
+app.get('/api/funnels/export', (req, res) => {
+    try {
+        const funnelsArray = Array.from(funis.values());
+        const filename = `kirvano-funis-${new Date().toISOString().split('T')[0]}.json`;
+        
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(JSON.stringify({
+            version: '5.4',
+            exportDate: new Date().toISOString(),
+            totalFunnels: funnelsArray.length,
+            funnels: funnelsArray
+        }, null, 2));
+        
+        addLog('FUNNELS_EXPORT', `Export: ${funnelsArray.length} funis`, null, LOG_LEVELS.INFO);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/funnels/import', (req, res) => {
+    try {
+        const importData = req.body;
+        
+        if (!importData.funnels || !Array.isArray(importData.funnels)) {
+            return res.status(400).json({ success: false, error: 'Arquivo inválido' });
+        }
+        
+        let importedCount = 0, skippedCount = 0;
+        
+        importData.funnels.forEach(funnel => {
+            if (funnel.id && funnel.name && funnel.steps && 
+                (funnel.id.startsWith('CS_') || funnel.id.startsWith('FAB_') || funnel.id.startsWith('PHRASE_'))) {
+                funis.set(funnel.id, funnel);
+                importedCount++;
+            } else {
+                skippedCount++;
+            }
+        });
+        
+        saveFunnelsToFile();
+        addLog('FUNNELS_IMPORT', `Import: ${importedCount} importados, ${skippedCount} ignorados`, 
+            null, LOG_LEVELS.INFO);
+        
+        res.json({ 
+            success: true, 
+            imported: importedCount,
+            skipped: skippedCount,
+            total: importData.funnels.length
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/phrases', (req, res) => {
+    const phrasesList = Array.from(phraseTriggers.entries()).map(([phrase, data]) => ({
+        phrase,
+        funnelId: data.funnelId,
+        active: data.active !== false,
+        triggerCount: data.triggerCount || 0
+    }));
+    res.json({ success: true, data: phrasesList });
+});
+
+app.post('/api/phrases', (req, res) => {
+    const { phrase, funnelId } = req.body;
+    
+    if (!phrase || !funnelId) {
+        return res.status(400).json({ success: false, error: 'Frase e funil são obrigatórios' });
+    }
+    
+    const normalizedPhrase = phrase.trim();
+    
+    if (phraseTriggers.has(normalizedPhrase)) {
+        return res.status(400).json({ success: false, error: 'Frase já cadastrada' });
+    }
+    
+    if (!funis.has(funnelId)) {
+        return res.status(400).json({ success: false, error: 'Funil não encontrado' });
+    }
+    
+    phraseTriggers.set(normalizedPhrase, {
+        funnelId,
+        active: true,
+        triggerCount: 0
+    });
+    
+    addLog('PHRASE_ADDED', `Frase cadastrada: "${normalizedPhrase}"`, 
+        { funnelId }, LOG_LEVELS.INFO);
+    savePhrasesToFile();
+    
+    res.json({ success: true, message: 'Frase cadastrada com sucesso' });
+});
+
+app.put('/api/phrases/:phrase', (req, res) => {
+    const phrase = decodeURIComponent(req.params.phrase);
+    const { funnelId, active } = req.body;
+    
+    if (!phraseTriggers.has(phrase)) {
+        return res.status(404).json({ success: false, error: 'Frase não encontrada' });
+    }
+    
+    const data = phraseTriggers.get(phrase);
+    
+    if (funnelId !== undefined) {
+        if (!funis.has(funnelId)) {
+            return res.status(400).json({ success: false, error: 'Funil não encontrado' });
+        }
+        data.funnelId = funnelId;
+    }
+    
+    if (active !== undefined) {
+        data.active = active;
+    }
+    
+    phraseTriggers.set(phrase, data);
+    addLog('PHRASE_UPDATED', `Frase atualizada: "${phrase}"`, null, LOG_LEVELS.INFO);
+    savePhrasesToFile();
+    
+    res.json({ success: true, message: 'Frase atualizada com sucesso' });
+});
+
+app.delete('/api/phrases/:phrase', (req, res) => {
+    const phrase = decodeURIComponent(req.params.phrase);
+    
+    if (phraseTriggers.has(phrase)) {
+        phraseTriggers.delete(phrase);
+        addLog('PHRASE_DELETED', `Frase excluída: "${phrase}"`, null, LOG_LEVELS.INFO);
+        savePhrasesToFile();
+        res.json({ success: true, message: 'Frase excluída com sucesso' });
+    } else {
+        res.status(404).json({ success: false, error: 'Frase não encontrada' });
+    }
+});
+
+app.post('/api/send-single', async (req, res) => {
+    try {
+        const { phone, funnelId, instanceName } = req.body;
+        
+        if (!phone || !funnelId || !instanceName) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Telefone, funil e instância são obrigatórios' 
+            });
+        }
+        
+        if (!funis.has(funnelId)) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Funil não encontrado' 
+            });
+        }
+        
+        if (!INSTANCES.includes(instanceName)) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Instância inválida' 
+            });
+        }
+        
+        const result = await sendSingleFunnel(phone, funnelId, instanceName);
+        
+        if (result.success) {
+            res.json({ 
+                success: true, 
+                message: 'Funil enviado com sucesso' 
+            });
+        } else {
+            res.status(500).json({ 
+                success: false, 
+                error: result.error 
+            });
+        }
+        
+    } catch (error) {
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
+    }
+});
+
+app.get('/api/campaigns', (req, res) => {
+    const campaignsList = Array.from(batchCampaigns.values()).map(campaign => ({
+        ...campaign,
+        leadsCount: campaign.leads.length,
+        leads: undefined
+    }));
+    res.json({ success: true, data: campaignsList });
+});
+
+function validatePhoneList(phoneList) {
+    const phones = phoneList.split('\n').map(p => p.trim()).filter(p => p.length > 0);
+    const validPhones = [];
+    const invalidPhones = [];
+    
+    phones.forEach(phone => {
+        const cleanPhone = phone.replace(/\D/g, '');
+        
+        if (cleanPhone.length >= 10 && cleanPhone.length <= 13) {
+            validPhones.push(cleanPhone);
+        } else {
+            invalidPhones.push(phone);
+        }
+    });
+    
+    return { validPhones, invalidPhones };
+}
+
+app.post('/api/campaigns', async (req, res) => {
+    try {
+        const { name, phoneList, funnelId, instanceName, delayMin, delayMax } = req.body;
+        
+        if (!name || !phoneList || !funnelId || !instanceName) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Nome, lista de telefones, funil e instância são obrigatórios' 
+            });
+        }
+        
+        if (!funis.has(funnelId)) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Funil não encontrado' 
+            });
+        }
+        
+        if (!INSTANCES.includes(instanceName)) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Instância inválida' 
+            });
+        }
+        
+        const { validPhones, invalidPhones } = validatePhoneList(phoneList);
+        
+        if (validPhones.length === 0) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Nenhum telefone válido na lista' 
+            });
+        }
+        
+        const campaignId = 'CAMP_' + Date.now();
+        
+        const campaign = {
+            id: campaignId,
+            name: name.trim(),
+            leads: validPhones,
+            funnelId,
+            instanceName,
+            delayMin: delayMin || 45,
+            delayMax: delayMax || 60,
+            status: 'paused',
+            progress: {
+                sent: 0,
+                errors: 0,
+                total: validPhones.length
+            },
+            leadsSent: [],
+            createdAt: new Date().toISOString()
+        };
+        
+        batchCampaigns.set(campaignId, campaign);
+        await saveCampaignsToFile();
+        
+        addLog('CAMPAIGN_CREATED', `Campanha criada: ${name}`, 
+            { campaignId, totalLeads: validPhones.length }, LOG_LEVELS.INFO);
+        
+        res.json({ 
+            success: true, 
+            message: 'Campanha criada com sucesso',
+            campaignId,
+            validPhones: validPhones.length,
+            invalidPhones: invalidPhones.length
+        });
+        
+    } catch (error) {
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
+    }
+});
+
+app.post('/api/campaigns/:id/start', (req, res) => {
+    const result = startCampaign(req.params.id);
+    
+    if (result.success) {
+        res.json({ success: true, message: 'Campanha iniciada' });
+    } else {
+        res.status(400).json(result);
+    }
+});
+
+app.post('/api/campaigns/:id/pause', (req, res) => {
+    const result = pauseCampaign(req.params.id);
+    
+    if (result.success) {
+        res.json({ success: true, message: 'Campanha pausada' });
+    } else {
+        res.status(400).json(result);
+    }
+});
+
+app.delete('/api/campaigns/:id', async (req, res) => {
+    const campaignId = req.params.id;
+    const campaign = batchCampaigns.get(campaignId);
+    
+    if (!campaign) {
+        return res.status(404).json({ 
+            success: false, 
+            error: 'Campanha não encontrada' 
+        });
+    }
+    
+    if (campaign.status === 'running') {
+        pauseCampaign(campaignId);
+    }
+    
+    batchCampaigns.delete(campaignId);
+    await saveCampaignsToFile();
+    
+    addLog('CAMPAIGN_DELETED', `Campanha excluída: ${campaign.name}`, 
+        { campaignId }, LOG_LEVELS.INFO);
+    
+    res.json({ success: true, message: 'Campanha excluída' });
+});
+
+app.get('/api/campaigns/:id', (req, res) => {
+    const campaign = batchCampaigns.get(req.params.id);
+    
+    if (!campaign) {
+        return res.status(404).json({ 
+            success: false, 
+            error: 'Campanha não encontrada' 
+        });
+    }
+    
+    res.json({ success: true, data: campaign });
+});
+
+app.get('/api/conversations', (req, res) => {
+    const conversationsList = Array.from(conversations.entries()).map(([phoneKey, conv]) => ({
+        id: phoneKey,
+        phone: conv.remoteJid.replace('@s.whatsapp.net', ''),
+        phoneKey: phoneKey,
+        customerName: conv.customerName,
+        productType: conv.productType,
+        funnelId: conv.funnelId,
+        stepIndex: conv.stepIndex,
+        waiting_for_response: conv.waiting_for_response,
+        pixWaiting: conv.pixWaiting || false,
+        createdAt: conv.createdAt,
+        lastSystemMessage: conv.lastSystemMessage,
+        lastReply: conv.lastReply,
+        orderCode: conv.orderCode,
+        amount: conv.amount,
+        stickyInstance: stickyInstances.get(phoneKey),
+        canceled: conv.canceled || false,
+        completed: conv.completed || false,
+        hasError: conv.hasError || false,
+        errorMessage: conv.errorMessage,
+        transferredFromPix: conv.transferredFromPix || false,
+        source: conv.source || 'kirvano'
+    }));
+    
+    conversationsList.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+    res.json({ success: true, data: conversationsList });
+});
+
+app.get('/api/debug/evolution', async (req, res) => {
+    const debugInfo = {
+        evolution_base_url: EVOLUTION_BASE_URL,
+        evolution_api_key_configured: EVOLUTION_API_KEY !== 'SUA_API_KEY_AQUI',
+        evolution_api_key_length: EVOLUTION_API_KEY !== 'SUA_API_KEY_AQUI' ? EVOLUTION_API_KEY.length : 0,
+        instances: INSTANCES,
+        active_conversations: conversations.size,
+        sticky_instances_count: stickyInstances.size,
+        pix_timeouts_active: pixTimeouts.size,
+        webhook_locks_active: webhookLocks.size,
+        phrase_triggers_count: phraseTriggers.size,
+        total_logs: logs.length,
+        test_results: []
+    };
+    
+    try {
+        const testInstance = INSTANCES[0];
+        const url = EVOLUTION_BASE_URL + '/message/sendText/' + testInstance;
+        
+        const response = await axios.post(url, {
+            number: '5511999999999',
+            text: 'teste'
+        }, {
+            headers: {
+                'Content-Type': 'application/json',
+                'apikey': EVOLUTION_API_KEY
+            },
+            timeout: 10000,
+            validateStatus: () => true
+        });
+        
+        debugInfo.test_results.push({
+            instance: testInstance,
+            url: url,
+            status: response.status,
+            response: response.data
+        });
+    } catch (error) {
+        debugInfo.test_results.push({
+            instance: INSTANCES[0],
+            error: error.message,
+            code: error.code
+        });
+    }
+    
+    res.json(debugInfo);
+});
+
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/teste.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'teste.html'));
+});
+
+app.get('/logs.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'logs.html'));
+});
+
+// ============ INICIALIZAÇÃO ============
 
 async function initializeData() {
     console.log('🔄 Carregando dados...');
@@ -1491,7 +2018,7 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO SYSTEM V5.4 - VERSÃO CORRIGIDA');
+    console.log('🚀 KIRVANO SYSTEM V5.4 - VERSÃO CORRIGIDA E COMPLETA');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
@@ -1503,6 +2030,22 @@ app.listen(PORT, async () => {
     console.log('  3. ✅ Timeout de resposta (30s)');
     console.log('  4. ✅ Rastreamento de steps enviados');
     console.log('  5. ✅ Sticky instance corrigida');
+    console.log('');
+    console.log('📡 Endpoints:');
+    console.log('  POST /webhook/kirvano           - Eventos Kirvano');
+    console.log('  POST /webhook/perfect           - Eventos PerfectPay');
+    console.log('  POST /webhook/evolution         - Mensagens WhatsApp');
+    console.log('  GET  /api/dashboard             - Dashboard');
+    console.log('  GET  /api/logs                  - Logs');
+    console.log('  GET  /api/funnels               - Funis');
+    console.log('  GET  /api/phrases               - Frases');
+    console.log('  GET  /api/campaigns             - Campanhas');
+    console.log('  GET  /api/conversations         - Conversas');
+    console.log('');
+    console.log('🌐 Frontend:');
+    console.log('  http://localhost:' + PORT + '           - Dashboard principal');
+    console.log('  http://localhost:' + PORT + '/logs.html - Sistema de logs');
+    console.log('  http://localhost:' + PORT + '/teste.html - Simulador de testes');
     console.log('='.repeat(70));
     
     await initializeData();
