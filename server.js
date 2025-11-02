@@ -17,9 +17,6 @@ const PHRASES_FILE = path.join(__dirname, 'data', 'phrases.json');
 const LOGS_FILE = path.join(__dirname, 'data', 'logs.json');
 const CAMPAIGNS_FILE = path.join(__dirname, 'data', 'campaigns.json');
 
-// 🆕 NOVO: Timeout para respostas (30 segundos)
-const REPLY_TIMEOUT = 30000;
-
 // Produtos CS e FAB
 const PRODUCT_MAPPING = {
     'e79419d3-5b71-4f90-954b-b05e94de8d98': 'CS',
@@ -894,22 +891,7 @@ async function sendStep(phoneKey) {
             
             addLog('STEP_WAITING_REPLY', `Aguardando resposta do cliente`, 
                 { phoneKey, stepIndex: conversation.stepIndex }, LOG_LEVELS.INFO);
-            
-            // 🆕 NOVO: Timeout de segurança
-            setTimeout(() => {
-                const conv = conversations.get(phoneKey);
-                if (conv && conv.waiting_for_response && 
-                    conv.stepIndex === conversation.stepIndex) {
-                    
-                    addLog('REPLY_TIMEOUT', 'Cliente não respondeu em 30s, avançando', 
-                        { phoneKey, stepIndex: conversation.stepIndex }, LOG_LEVELS.WARNING);
-                    
-                    conv.waiting_for_response = false;
-                    conversations.set(phoneKey, conv);
-                    advanceConversation(phoneKey, null, 'timeout');
-                }
-            }, REPLY_TIMEOUT);
-            
+    
         } else {
             conversations.set(phoneKey, conversation);
             
