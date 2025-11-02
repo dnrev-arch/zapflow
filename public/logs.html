@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kirvano - Logs do Sistema</title>
+    <title>Kirvano - Simulador de Testes</title>
     <style>
         * {
             margin: 0;
@@ -12,544 +12,508 @@
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
-            background: #0f172a;
-            color: #e2e8f0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
             min-height: 100vh;
+            color: #333;
             padding: 20px;
         }
 
         .container {
-            max-width: 1600px;
+            max-width: 800px;
             margin: 0 auto;
         }
 
         .header {
-            background: linear-gradient(135deg, #1e293b, #334155);
-            border-radius: 12px;
+            background: white;
+            border-radius: 16px;
             padding: 24px;
             margin-bottom: 24px;
-            border: 1px solid #334155;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            text-align: center;
         }
 
         .header h1 {
-            color: #f1f5f9;
+            color: #1f2937;
             margin-bottom: 8px;
-            font-size: 28px;
         }
 
         .header p {
-            color: #94a3b8;
-            font-size: 14px;
+            color: #6b7280;
         }
 
-        .controls {
-            background: #1e293b;
-            border-radius: 12px;
-            padding: 20px;
+        .test-card {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
             margin-bottom: 20px;
-            border: 1px solid #334155;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
         }
 
-        .controls-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
+        .test-card h3 {
+            color: #1f2937;
             margin-bottom: 16px;
-        }
-
-        .control-group {
             display: flex;
-            flex-direction: column;
+            align-items: center;
             gap: 8px;
         }
 
-        .control-group label {
-            font-size: 12px;
-            color: #94a3b8;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+        .form-group {
+            margin-bottom: 16px;
         }
 
-        .control-input, .control-select {
-            background: #0f172a;
-            border: 1px solid #334155;
-            color: #e2e8f0;
-            padding: 10px 12px;
-            border-radius: 6px;
-            font-family: inherit;
+        .form-label {
+            display: block;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 6px;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
             font-size: 14px;
         }
 
-        .control-input:focus, .control-select:focus {
+        .form-input:focus {
             outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+            border-color: #10b981;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
         }
 
-        .button-group {
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
+        .form-select {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            background: white;
         }
 
         .btn {
-            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            background: linear-gradient(135deg, #10b981, #059669);
             color: white;
             border: none;
-            padding: 10px 20px;
-            border-radius: 6px;
+            padding: 12px 24px;
+            border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
             font-size: 14px;
             transition: all 0.2s;
-            font-family: inherit;
+            width: 100%;
         }
 
         .btn:hover {
             transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
         }
 
-        .btn-success { background: linear-gradient(135deg, #10b981, #059669); }
-        .btn-danger { background: linear-gradient(135deg, #ef4444, #dc2626); }
-        .btn-warning { background: linear-gradient(135deg, #f59e0b, #d97706); }
-        .btn-secondary { background: linear-gradient(135deg, #64748b, #475569); }
+        .btn-secondary {
+            background: #6b7280;
+        }
 
-        .stats-grid {
+        .result {
+            margin-top: 16px;
+            padding: 12px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 13px;
+        }
+
+        .result.success {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #10b981;
+        }
+
+        .result.error {
+            background: #fecaca;
+            color: #991b1b;
+            border: 1px solid #dc2626;
+        }
+
+        .quick-buttons {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            grid-template-columns: 1fr 1fr;
             gap: 12px;
-            margin-bottom: 20px;
+            margin-top: 16px;
         }
 
-        .stat-card {
-            background: #1e293b;
-            border: 1px solid #334155;
+        .preset-card {
+            background: #f8fafc;
+            border: 1px solid #e5e7eb;
             border-radius: 8px;
             padding: 16px;
-            text-align: center;
+            margin-bottom: 12px;
         }
 
-        .stat-value {
-            font-size: 24px;
-            font-weight: 700;
-            color: #3b82f6;
-            margin-bottom: 4px;
+        .preset-card h4 {
+            color: #1f2937;
+            margin-bottom: 8px;
         }
 
-        .stat-label {
-            font-size: 11px;
-            color: #94a3b8;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+        .preset-card p {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 12px;
         }
 
         .logs-container {
-            background: #1e293b;
-            border-radius: 12px;
-            border: 1px solid #334155;
-            overflow: hidden;
-        }
-
-        .log-entry {
-            border-bottom: 1px solid #334155;
-            padding: 16px 20px;
-            transition: background 0.2s;
+            background: #1f2937;
+            color: #f9fafb;
+            border-radius: 8px;
+            padding: 16px;
+            font-family: monospace;
             font-size: 13px;
-            line-height: 1.6;
-        }
-
-        .log-entry:hover {
-            background: #0f172a;
-        }
-
-        .log-entry:last-child {
-            border-bottom: none;
-        }
-
-        .log-header {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin-bottom: 8px;
-            flex-wrap: wrap;
-        }
-
-        .log-timestamp {
-            color: #64748b;
-            font-size: 12px;
-            font-family: 'Courier New', monospace;
-        }
-
-        .log-level {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .log-level-DEBUG { background: #1e293b; color: #64748b; border: 1px solid #475569; }
-        .log-level-INFO { background: #1e40af; color: #bfdbfe; }
-        .log-level-WARNING { background: #b45309; color: #fef3c7; }
-        .log-level-ERROR { background: #991b1b; color: #fecaca; }
-        .log-level-CRITICAL { background: #7f1d1d; color: #fee2e2; animation: pulse 2s infinite; }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-
-        .log-type {
-            color: #94a3b8;
-            font-weight: 600;
-            font-family: 'Courier New', monospace;
-        }
-
-        .log-message {
-            color: #e2e8f0;
-            margin-bottom: 8px;
-            word-wrap: break-word;
-        }
-
-        .log-data {
-            background: #0f172a;
-            border: 1px solid #334155;
-            border-radius: 4px;
-            padding: 12px;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            color: #94a3b8;
-            overflow-x: auto;
-            max-height: 200px;
+            max-height: 300px;
             overflow-y: auto;
         }
 
-        .log-data pre {
-            margin: 0;
-            white-space: pre-wrap;
+        .log-entry {
+            margin-bottom: 4px;
         }
 
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: #64748b;
-        }
-
-        .empty-state h3 {
-            color: #94a3b8;
-            margin-bottom: 8px;
-        }
-
-        .loading {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 40px;
-            color: #64748b;
-        }
-
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 4px solid #334155;
-            border-top-color: #3b82f6;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 8px;
-            padding: 16px 20px;
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-            z-index: 1000;
-            display: none;
-        }
-
-        .toast.show {
-            display: block;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from {
-                transform: translateX(400px);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-
-        .back-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            color: #3b82f6;
-            text-decoration: none;
-            font-weight: 600;
-            margin-bottom: 20px;
-            transition: color 0.2s;
-        }
-
-        .back-link:hover {
-            color: #60a5fa;
-        }
+        .log-success { color: #10b981; }
+        .log-error { color: #ef4444; }
+        .log-info { color: #3b82f6; }
     </style>
 </head>
 <body>
     <div class="container">
-        <a href="/" class="back-link">← Voltar ao Dashboard</a>
-
         <div class="header">
-            <h1>📋 Sistema de Logs</h1>
-            <p>Monitoramento completo em tempo real</p>
+            <h1>🧪 Simulador de Testes Kirvano</h1>
+            <p>Simule eventos de compra para testar seus funis sem precisar fazer vendas reais</p>
         </div>
 
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-value" id="statTotal">-</div>
-                <div class="stat-label">Total de Logs</div>
+        <!-- TESTES RÁPIDOS -->
+        <div class="test-card">
+            <h3>⚡ Testes Rápidos</h3>
+            
+            <div class="preset-card">
+                <h4>CS - Compra Aprovada</h4>
+                <p>Simula uma compra aprovada do produto CS</p>
+                <button class="btn" onclick="sendQuickTest('CS', 'APPROVED')">Testar CS Aprovada</button>
             </div>
-            <div class="stat-card">
-                <div class="stat-value" id="statErrors">-</div>
-                <div class="stat-label">Erros</div>
+            
+            <div class="preset-card">
+                <h4>CS - PIX Pendente</h4>
+                <p>Simula um PIX gerado e pendente do produto CS</p>
+                <button class="btn" onclick="sendQuickTest('CS', 'PIX')">Testar CS PIX</button>
             </div>
-            <div class="stat-card">
-                <div class="stat-value" id="statWarnings">-</div>
-                <div class="stat-label">Avisos</div>
+            
+            <div class="preset-card">
+                <h4>FB - Compra Aprovada</h4>
+                <p>Simula uma compra aprovada do produto FB</p>
+                <button class="btn" onclick="sendQuickTest('FB', 'APPROVED')">Testar FB Aprovada</button>
             </div>
-            <div class="stat-card">
-                <div class="stat-value" id="statInfo">-</div>
-                <div class="stat-label">Info</div>
-            </div>
-        </div>
-
-        <div class="controls">
-            <div class="controls-grid">
-                <div class="control-group">
-                    <label>Nível</label>
-                    <select id="filterLevel" class="control-select" onchange="loadLogs()">
-                        <option value="">Todos</option>
-                        <option value="DEBUG">DEBUG</option>
-                        <option value="INFO">INFO</option>
-                        <option value="WARNING">WARNING</option>
-                        <option value="ERROR">ERROR</option>
-                        <option value="CRITICAL">CRITICAL</option>
-                    </select>
-                </div>
-
-                <div class="control-group">
-                    <label>Tipo</label>
-                    <input type="text" id="filterType" class="control-input" placeholder="Ex: PHRASE, KIRVANO, SEND">
-                </div>
-
-                <div class="control-group">
-                    <label>Telefone (últimos 8 dígitos)</label>
-                    <input type="text" id="filterPhone" class="control-input" placeholder="Ex: 99999999" maxlength="8">
-                </div>
-
-                <div class="control-group">
-                    <label>Limite</label>
-                    <select id="filterLimit" class="control-select" onchange="loadLogs()">
-                        <option value="50">50 logs</option>
-                        <option value="100" selected>100 logs</option>
-                        <option value="200">200 logs</option>
-                        <option value="500">500 logs</option>
-                        <option value="1000">1000 logs</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="button-group">
-                <button class="btn" onclick="loadLogs()">🔍 Filtrar</button>
-                <button class="btn btn-success" onclick="loadLogs()">🔄 Atualizar</button>
-                <button class="btn btn-warning" onclick="exportLogs('json')">💾 Exportar JSON</button>
-                <button class="btn btn-warning" onclick="exportLogs('txt')">📄 Exportar TXT</button>
-                <button class="btn btn-danger" onclick="clearFilters()">🗑️ Limpar Filtros</button>
+            
+            <div class="preset-card">
+                <h4>FB - PIX Pendente</h4>
+                <p>Simula um PIX gerado e pendente do produto FB</p>
+                <button class="btn" onclick="sendQuickTest('FB', 'PIX')">Testar FB PIX</button>
             </div>
         </div>
 
-        <div class="logs-container" id="logsContainer">
-            <div class="loading">
-                <div class="spinner"></div>
+        <!-- TESTE CUSTOMIZADO -->
+        <div class="test-card">
+            <h3>🎛️ Teste Customizado</h3>
+            
+            <div class="form-group">
+                <label class="form-label">Nome do Cliente</label>
+                <input type="text" id="customerName" class="form-input" value="João Silva" placeholder="Nome do cliente teste">
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Telefone (com código do país)</label>
+                <input type="text" id="customerPhone" class="form-input" value="5511999999999" placeholder="5511999999999">
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Produto</label>
+                <select id="productType" class="form-select">
+                    <option value="CS">CS (Curso/Serviço)</option>
+                    <option value="FB">FB (Fábrica)</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Tipo de Evento</label>
+                <select id="eventType" class="form-select">
+                    <option value="APPROVED">Compra Aprovada</option>
+                    <option value="PIX">PIX Pendente</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Valor</label>
+                <input type="text" id="totalPrice" class="form-input" value="R$ 197,00" placeholder="R$ 197,00">
+            </div>
+            
+            <button class="btn" onclick="sendCustomTest()">Enviar Teste Customizado</button>
+            
+            <div id="customResult"></div>
+        </div>
+
+        <!-- LOGS EM TEMPO REAL -->
+        <div class="test-card">
+            <h3>📋 Logs do Sistema</h3>
+            <button class="btn btn-secondary" onclick="loadLogs()" style="margin-bottom: 16px;">Atualizar Logs</button>
+            <div id="logsContainer" class="logs-container">
+                <div class="log-entry">Carregando logs...</div>
+            </div>
+        </div>
+
+        <!-- DEBUG EVOLUTION -->
+        <div class="test-card">
+            <h3>🔧 Debug Evolution API</h3>
+            <button class="btn btn-secondary" onclick="debugEvolution()" style="margin-bottom: 16px;">Verificar Configuração</button>
+            <div id="debugContainer">
+                <div class="log-entry">Clique no botão acima para verificar a configuração da Evolution API</div>
             </div>
         </div>
     </div>
 
-    <div id="toast" class="toast"></div>
-
     <script>
-        let autoRefresh = null;
+        // Mapeamento de produtos para offer_ids
+        const PRODUCT_OFFERS = {
+            'CS': '5c1f6390-8999-4740-b16f-51380e1097e4',
+            'FB': '5288799c-d8e3-48ce-a91d-587814acdee5'
+        };
 
-        async function loadLogs() {
-            const level = document.getElementById('filterLevel').value;
-            const type = document.getElementById('filterType').value;
-            const phoneKey = document.getElementById('filterPhone').value;
-            const limit = document.getElementById('filterLimit').value;
-
-            const params = new URLSearchParams();
-            if (level) params.append('level', level);
-            if (type) params.append('type', type);
-            if (phoneKey) params.append('phoneKey', phoneKey);
-            if (limit) params.append('limit', limit);
-
+        // TESTES RÁPIDOS
+        async function sendQuickTest(product, eventType) {
+            const randomPhone = '5511' + Math.floor(Math.random() * 1000000000).toString().padStart(9, '0');
+            const customerName = 'Cliente Teste ' + Math.floor(Math.random() * 1000);
+            
+            const eventData = createEventData(customerName, randomPhone, product, eventType, 'R$ 197,00');
+            
             try {
-                const response = await fetch('/api/logs?' + params.toString());
+                const response = await fetch('/webhook/kirvano', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(eventData)
+                });
+                
                 const result = await response.json();
+                
+                // Mostrar resultado
+                showResult(`Teste ${product} ${eventType} enviado com sucesso!
+Telefone: ${randomPhone}
+Cliente: ${customerName}
+Resposta: ${JSON.stringify(result, null, 2)}`, 'success');
+                
+                // Atualizar logs
+                setTimeout(loadLogs, 1000);
+                
+            } catch (error) {
+                showResult('Erro ao enviar teste: ' + error.message, 'error');
+            }
+        }
 
+        // TESTE CUSTOMIZADO
+        async function sendCustomTest() {
+            const customerName = document.getElementById('customerName').value;
+            const customerPhone = document.getElementById('customerPhone').value;
+            const productType = document.getElementById('productType').value;
+            const eventType = document.getElementById('eventType').value;
+            const totalPrice = document.getElementById('totalPrice').value;
+            
+            if (!customerName || !customerPhone) {
+                showCustomResult('Preencha nome e telefone!', 'error');
+                return;
+            }
+            
+            const eventData = createEventData(customerName, customerPhone, productType, eventType, totalPrice);
+            
+            try {
+                const response = await fetch('/webhook/kirvano', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(eventData)
+                });
+                
+                const result = await response.json();
+                
+                showCustomResult(`Evento enviado com sucesso!
+Resposta: ${JSON.stringify(result, null, 2)}`, 'success');
+                
+                // Atualizar logs
+                setTimeout(loadLogs, 1000);
+                
+            } catch (error) {
+                showCustomResult('Erro ao enviar: ' + error.message, 'error');
+            }
+        }
+
+        // CRIAR DADOS DO EVENTO
+        function createEventData(customerName, customerPhone, productType, eventType, totalPrice) {
+            const offerId = PRODUCT_OFFERS[productType];
+            const saleId = 'TEST_' + Date.now();
+            
+            let event, status, method;
+            
+            if (eventType === 'APPROVED') {
+                event = 'SALE_APPROVED';
+                status = 'APPROVED';
+                method = 'CREDIT_CARD';
+            } else {
+                event = 'PIX_GENERATED';
+                status = 'PENDING';
+                method = 'PIX';
+            }
+            
+            return {
+                event: event,
+                status: status,
+                sale_id: saleId,
+                checkout_id: saleId,
+                customer: {
+                    name: customerName,
+                    phone_number: customerPhone
+                },
+                total_price: totalPrice,
+                products: [
+                    {
+                        offer_id: offerId,
+                        name: productType + ' - Produto Teste'
+                    }
+                ],
+                payment: {
+                    method: method,
+                    qrcode_image: eventType === 'PIX' ? 'https://exemplo.com/qr-code.png' : null
+                }
+            };
+        }
+
+        // MOSTRAR RESULTADOS
+        function showResult(message, type) {
+            // Criar elemento de resultado temporário
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'result ' + type;
+            resultDiv.textContent = message;
+            
+            // Adicionar após o último botão de teste rápido
+            const lastPreset = document.querySelectorAll('.preset-card');
+            lastPreset[lastPreset.length - 1].appendChild(resultDiv);
+            
+            // Remover após 5 segundos
+            setTimeout(() => {
+                if (resultDiv.parentNode) {
+                    resultDiv.parentNode.removeChild(resultDiv);
+                }
+            }, 5000);
+        }
+
+        function showCustomResult(message, type) {
+            const resultDiv = document.getElementById('customResult');
+            resultDiv.className = 'result ' + type;
+            resultDiv.textContent = message;
+            
+            // Remover após 10 segundos
+            setTimeout(() => {
+                resultDiv.innerHTML = '';
+                resultDiv.className = '';
+            }, 10000);
+        }
+
+        // CARREGAR LOGS
+        async function loadLogs() {
+            try {
+                const response = await fetch('/api/logs?limit=20');
+                const result = await response.json();
+                
                 if (result.success) {
                     renderLogs(result.data);
-                    updateStats(result.data);
                 } else {
-                    showToast('Erro ao carregar logs', 'error');
+                    document.getElementById('logsContainer').innerHTML = 
+                        '<div class="log-entry log-error">Erro ao carregar logs</div>';
                 }
             } catch (error) {
-                showToast('Erro de conexão: ' + error.message, 'error');
+                document.getElementById('logsContainer').innerHTML = 
+                    '<div class="log-entry log-error">Erro de conexão: ' + error.message + '</div>';
             }
         }
 
         function renderLogs(logs) {
             const container = document.getElementById('logsContainer');
-
+            
             if (logs.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <h3>Nenhum log encontrado</h3>
-                        <p>Ajuste os filtros ou aguarde novos eventos</p>
-                    </div>
-                `;
+                container.innerHTML = '<div class="log-entry">Nenhum log disponível</div>';
                 return;
             }
 
             let html = '';
             logs.forEach(log => {
-                const data = log.data ? JSON.parse(log.data) : null;
+                const timestamp = new Date(log.timestamp).toLocaleTimeString('pt-BR');
+                let className = 'log-entry';
                 
-                html += `
-                    <div class="log-entry">
-                        <div class="log-header">
-                            <span class="log-timestamp">${formatTimestamp(log.timestamp)}</span>
-                            <span class="log-level log-level-${log.level}">${log.level}</span>
-                            <span class="log-type">${log.type}</span>
-                        </div>
-                        <div class="log-message">${escapeHtml(log.message)}</div>
-                        ${data ? `
-                            <div class="log-data">
-                                <pre>${JSON.stringify(data, null, 2)}</pre>
-                            </div>
-                        ` : ''}
-                    </div>
-                `;
+                if (log.type.includes('ERROR') || log.type.includes('FAILED')) {
+                    className += ' log-error';
+                } else if (log.type.includes('SUCCESS') || log.type.includes('START')) {
+                    className += ' log-success';
+                } else {
+                    className += ' log-info';
+                }
+
+                html += `<div class="${className}">[${timestamp}] ${log.type}: ${log.message}</div>`;
             });
 
             container.innerHTML = html;
+            
+            // Scroll para o topo
+            container.scrollTop = 0;
         }
 
-        function updateStats(logs) {
-            document.getElementById('statTotal').textContent = logs.length;
-            document.getElementById('statErrors').textContent = logs.filter(l => l.level === 'ERROR' || l.level === 'CRITICAL').length;
-            document.getElementById('statWarnings').textContent = logs.filter(l => l.level === 'WARNING').length;
-            document.getElementById('statInfo').textContent = logs.filter(l => l.level === 'INFO').length;
-        }
-
-        function formatTimestamp(timestamp) {
-            const date = new Date(timestamp);
-            return date.toLocaleString('pt-BR', {
-                day: '2-digit',
-                month: '2-digit',
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-        }
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        async function exportLogs(format) {
+        // DEBUG EVOLUTION
+        async function debugEvolution() {
+            const container = document.getElementById('debugContainer');
+            container.innerHTML = '<div class="log-entry log-info">Verificando configuração...</div>';
+            
             try {
-                const response = await fetch(`/api/logs/export?format=${format}`);
-                if (response.ok) {
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    const today = new Date().toISOString().split('T')[0];
-                    a.download = `kirvano-logs-${today}.${format}`;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-                    showToast('Logs exportados com sucesso!', 'success');
-                } else {
-                    showToast('Erro ao exportar logs', 'error');
+                const response = await fetch('/api/debug/evolution');
+                const debug = await response.json();
+                
+                let html = '';
+                
+                // Configuração
+                html += '<div class="log-entry log-info">URL Evolution: ' + debug.evolution_base_url + '</div>';
+                html += '<div class="log-entry ' + (debug.evolution_api_key_configured ? 'log-success' : 'log-error') + '">';
+                html += 'API Key: ' + (debug.evolution_api_key_configured ? 'Configurada (' + debug.evolution_api_key_length + ' caracteres)' : 'NÃO CONFIGURADA');
+                html += '</div>';
+                
+                html += '<div class="log-entry log-info">Instâncias: ' + debug.instances.join(', ') + '</div>';
+                
+                // Resultado do teste
+                if (debug.test_results.length > 0) {
+                    const test = debug.test_results[0];
+                    html += '<div class="log-entry log-info">--- Teste de Conexão ---</div>';
+                    
+                    if (test.error) {
+                        html += '<div class="log-entry log-error">Erro: ' + test.error + '</div>';
+                        if (test.code) {
+                            html += '<div class="log-entry log-error">Código: ' + test.code + '</div>';
+                        }
+                    } else {
+                        html += '<div class="log-entry ' + (test.status === 200 ? 'log-success' : 'log-error') + '">';
+                        html += 'Status HTTP: ' + test.status + '</div>';
+                        html += '<div class="log-entry log-info">URL Testada: ' + test.url + '</div>';
+                        html += '<div class="log-entry log-info">Resposta: ' + JSON.stringify(test.response, null, 2) + '</div>';
+                    }
                 }
+                
+                container.innerHTML = html;
+                
             } catch (error) {
-                showToast('Erro: ' + error.message, 'error');
+                container.innerHTML = '<div class="log-entry log-error">Erro ao verificar: ' + error.message + '</div>';
             }
         }
 
-        function clearFilters() {
-            document.getElementById('filterLevel').value = '';
-            document.getElementById('filterType').value = '';
-            document.getElementById('filterPhone').value = '';
-            document.getElementById('filterLimit').value = '100';
-            loadLogs();
-        }
-
-        function showToast(message, type = 'info') {
-            const toast = document.getElementById('toast');
-            toast.textContent = message;
-            toast.className = 'toast show';
-            
-            setTimeout(() => {
-                toast.classList.remove('show');
-            }, 3000);
-        }
-
-        // Filtro ao digitar
-        document.getElementById('filterType').addEventListener('input', debounce(loadLogs, 500));
-        document.getElementById('filterPhone').addEventListener('input', debounce(loadLogs, 500));
-
-        function debounce(func, wait) {
-            let timeout;
-            return function executedFunction(...args) {
-                const later = () => {
-                    clearTimeout(timeout);
-                    func(...args);
-                };
-                clearTimeout(timeout);
-                timeout = setTimeout(later, wait);
-            };
-        }
-
-        // Auto-refresh a cada 5 segundos
-        autoRefresh = setInterval(loadLogs, 5000);
-
-        // Carregar logs inicial
+        // AUTO-REFRESH DOS LOGS
+        setInterval(loadLogs, 5000);
+        
+        // CARREGAR LOGS INICIAL
         loadLogs();
-
-        // Limpar auto-refresh ao sair
-        window.addEventListener('beforeunload', () => {
-            if (autoRefresh) clearInterval(autoRefresh);
-        });
     </script>
 </body>
 </html>
