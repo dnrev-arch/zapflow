@@ -1291,14 +1291,31 @@ app.post('/webhook/perfectpay', async (req, res) => {
 // 🆕 MELHORADO: Webhook Evolution com proteção contra duplicação
 app.post('/webhook/evolution', async (req, res) => {
     const requestId = Date.now() + Math.random();
+    app.post('/webhook/evolution', async (req, res) => {
+    const requestId = Date.now() + Math.random();
+    
+    // 🆕 NOVO: Log COMPLETO de tudo que chega
+    console.log('='.repeat(70));
+    console.log('🔔 WEBHOOK EVOLUTION RECEBIDO:', new Date().toISOString());
+    console.log('Body completo:', JSON.stringify(req.body, null, 2));
+    console.log('='.repeat(70));
     
     try {
         const data = req.body;
         const messageData = data.data;
         
-        if (!messageData || !messageData.key) {
-            addLog('EVOLUTION_NO_MESSAGE', 'Webhook sem dados', 
-                { requestId }, LOG_LEVELS.DEBUG);
+        // 🆕 NOVO: Log se não tem dados
+        if (!messageData) {
+            console.log('❌ SEM messageData no webhook!');
+            addLog('EVOLUTION_NO_DATA', 'Webhook sem messageData', 
+                { requestId, body: req.body }, LOG_LEVELS.WARNING);
+            return res.json({ success: true });
+        }
+        
+        if (!messageData.key) {
+            console.log('❌ SEM messageData.key no webhook!');
+            addLog('EVOLUTION_NO_KEY', 'Webhook sem key', 
+                { requestId, body: req.body }, LOG_LEVELS.WARNING);
             return res.json({ success: true });
         }
         
@@ -1310,8 +1327,16 @@ app.post('/webhook/evolution', async (req, res) => {
         const incomingPhone = remoteJid.replace('@s.whatsapp.net', '');
         const phoneKey = extractPhoneKey(incomingPhone);
         
+        console.log('📱 Mensagem processada:');
+        console.log('  Phone:', incomingPhone);
+        console.log('  PhoneKey:', phoneKey);
+        console.log('  FromMe:', fromMe);
+        console.log('  Text:', messageText);
+        console.log('  Instance:', instanceName);
+        
         addLog('EVOLUTION_MESSAGE_RECEIVED', `"${messageText.substring(0, 50)}"`, 
             { requestId, phoneKey, instanceName, fromMe }, LOG_LEVELS.INFO);
+        }
         
         if (!phoneKey || phoneKey.length !== 8) {
             addLog('EVOLUTION_INVALID_PHONE', 'PhoneKey inválido', 
