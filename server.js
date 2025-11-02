@@ -51,9 +51,7 @@ let phraseTriggers = new Map();
 let phraseCooldowns = new Map();
 let batchCampaigns = new Map();
 let campaignTimers = new Map();
-
-// 🆕 NOVO: Controle de mensagens enviadas para evitar duplicação
-let sentMessages = new Map(); // phoneKey -> Set de IDs de steps enviados
+let sentMessages = new Map();
 
 const LOG_LEVELS = {
     DEBUG: 'DEBUG',
@@ -642,12 +640,10 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
         canceled: false,
         completed: false,
         source: 'kirvano',
-        sentSteps: [] // 🆕 NOVO: Rastrear steps enviados
+        sentSteps: []
     };
     
     conversations.set(phoneKey, conversation);
-    
-    // 🆕 NOVO: Inicializar controle de mensagens enviadas
     sentMessages.set(phoneKey, new Set());
     
     addLog('PIX_WAITING_CREATED', `PIX em espera`, 
@@ -719,12 +715,10 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
         transferredFromPix: true,
         previousFunnel: productType === 'CS' ? 'CS_PIX' : 'FAB_PIX',
         source: 'kirvano',
-        sentSteps: [] // 🆕 NOVO
+        sentSteps: []
     };
     
     conversations.set(phoneKey, approvedConv);
-    
-    // 🆕 NOVO: Reset controle de mensagens
     sentMessages.set(phoneKey, new Set());
     
     addLog('TRANSFER_PIX_TO_APPROVED', 'Transferido para funil aprovado', 
@@ -750,12 +744,10 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
         canceled: false,
         completed: false,
         source,
-        sentSteps: [] // 🆕 NOVO
+        sentSteps: []
     };
     
     conversations.set(phoneKey, conversation);
-    
-    // 🆕 NOVO: Inicializar controle
     sentMessages.set(phoneKey, new Set());
     
     addLog('FUNNEL_START', `Iniciando funil ${funnelId}`, 
@@ -764,7 +756,6 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
     await sendStep(phoneKey);
 }
 
-// 🆕 MELHORADO: sendStep com proteção contra duplicação e race condition
 async function sendStep(phoneKey) {
     const conversation = conversations.get(phoneKey);
     
@@ -806,7 +797,6 @@ async function sendStep(phoneKey) {
         return;
     }
     
-    // 🆕 NOVO: Verificar se já enviou este step
     const stepKey = `${conversation.funnelId}_${conversation.stepIndex}`;
     const sentStepsSet = sentMessages.get(phoneKey) || new Set();
     
@@ -814,12 +804,10 @@ async function sendStep(phoneKey) {
         addLog('STEP_ALREADY_SENT', `Step já foi enviado, pulando`, 
             { phoneKey, stepIndex: conversation.stepIndex }, LOG_LEVELS.WARNING);
         
-        // Se já enviou e está esperando resposta, não fazer nada
         if (step.waitForReply) {
             return;
         }
         
-        // Se não está esperando resposta, avançar
         await advanceConversation(phoneKey, null, 'duplicate_skip');
         return;
     }
@@ -830,7 +818,6 @@ async function sendStep(phoneKey) {
         { phoneKey, funnelId: conversation.funnelId, stepType: step.type, 
           waitForReply: step.waitForReply }, LOG_LEVELS.INFO);
     
-    // 🆕 CRÍTICO: Setar waiting_for_response ANTES de enviar
     if (step.waitForReply && step.type !== 'delay') {
         conversation.waiting_for_response = true;
         conversations.set(phoneKey, conversation);
@@ -871,13 +858,11 @@ async function sendStep(phoneKey) {
     }
     
     if (result.success) {
-        // 🆕 NOVO: Marcar step como enviado
         sentStepsSet.add(stepKey);
         sentMessages.set(phoneKey, sentStepsSet);
         
         conversation.lastSystemMessage = new Date();
         
-        // 🆕 NOVO: Adicionar ao histórico
         if (!conversation.sentSteps) conversation.sentSteps = [];
         conversation.sentSteps.push({
             stepIndex: conversation.stepIndex,
@@ -886,7 +871,6 @@ async function sendStep(phoneKey) {
         });
         
         if (step.waitForReply && step.type !== 'delay') {
-            // waiting_for_response já foi setado ANTES do envio
             conversations.set(phoneKey, conversation);
             
             addLog('STEP_WAITING_REPLY', `Aguardando resposta do cliente`, 
@@ -958,8 +942,6 @@ async function advanceConversation(phoneKey, replyText, reason) {
     await sendStep(phoneKey);
 }
 
-// ============ CAMPANHAS EM LOTE ============
-
 async function sendSingleFunnel(phone, funnelId, instanceName) {
     const phoneKey = extractPhoneKey(phone);
     const normalizedPhone = phone.startsWith('55') ? phone : '55' + phone;
@@ -969,10 +951,8 @@ async function sendSingleFunnel(phone, funnelId, instanceName) {
         addLog('SINGLE_SEND_START', `Enviando funil para ${phone}`, 
             { phone, funnelId, instanceName }, LOG_LEVELS.INFO);
         
-        // Setar sticky instance
         stickyInstances.set(phoneKey, instanceName);
         
-        // Iniciar funil
         await startFunnel(
             phoneKey,
             remoteJid,
@@ -1229,7 +1209,10 @@ app.post('/webhook/perfectpay', async (req, res) => {
         }
         
         const productType = PERFECTPAY_PLANS[planCode];
-        const fullPhone = phoneArea + phoneNumber;
+        
+        // 🆕 CORREÇÃO: Tratamento correto do telefone
+        const cleanArea = phoneArea.startsWith('55') ? phoneArea.substring(2) : phoneArea;
+        const fullPhone = phoneNumber.length >= 11 ? phoneNumber : cleanArea + phoneNumber;
         const phoneKey = extractPhoneKey(fullPhone);
         
         if (!phoneKey || phoneKey.length !== 8) {
@@ -1288,13 +1271,9 @@ app.post('/webhook/perfectpay', async (req, res) => {
     }
 });
 
-// 🆕 MELHORADO: Webhook Evolution com proteção contra duplicação
 app.post('/webhook/evolution', async (req, res) => {
     const requestId = Date.now() + Math.random();
-    app.post('/webhook/evolution', async (req, res) => {
-    const requestId = Date.now() + Math.random();
     
-    // 🆕 NOVO: Log COMPLETO de tudo que chega
     console.log('='.repeat(70));
     console.log('🔔 WEBHOOK EVOLUTION RECEBIDO:', new Date().toISOString());
     console.log('Body completo:', JSON.stringify(req.body, null, 2));
@@ -1304,7 +1283,6 @@ app.post('/webhook/evolution', async (req, res) => {
         const data = req.body;
         const messageData = data.data;
         
-        // 🆕 NOVO: Log se não tem dados
         if (!messageData) {
             console.log('❌ SEM messageData no webhook!');
             addLog('EVOLUTION_NO_DATA', 'Webhook sem messageData', 
@@ -1336,7 +1314,6 @@ app.post('/webhook/evolution', async (req, res) => {
         
         addLog('EVOLUTION_MESSAGE_RECEIVED', `"${messageText.substring(0, 50)}"`, 
             { requestId, phoneKey, instanceName, fromMe }, LOG_LEVELS.INFO);
-        }
         
         if (!phoneKey || phoneKey.length !== 8) {
             addLog('EVOLUTION_INVALID_PHONE', 'PhoneKey inválido', 
@@ -1368,7 +1345,6 @@ app.post('/webhook/evolution', async (req, res) => {
                     const funnel = funis.get(triggeredFunnelId);
                     
                     if (funnel && funnel.steps && funnel.steps.length > 0) {
-                        // 🆕 CRÍTICO: Setar sticky instance ANTES
                         if (instanceName && INSTANCES.includes(instanceName)) {
                             stickyInstances.set(phoneKey, instanceName);
                             addLog('STICKY_INSTANCE_SET_PHRASE', `Sticky fixada em: ${instanceName}`, 
@@ -1581,7 +1557,7 @@ app.get('/api/funnels/export', (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(JSON.stringify({
-            version: '5.4',
+            version: '5.5',
             exportDate: new Date().toISOString(),
             totalFunnels: funnelsArray.length,
             funnels: funnelsArray
@@ -2025,34 +2001,28 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO SYSTEM V5.4 - VERSÃO CORRIGIDA E COMPLETA');
+    console.log('🚀 KIRVANO SYSTEM V5.5 - VERSÃO FINAL CORRIGIDA');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
     console.log('Instâncias:', INSTANCES.length);
     console.log('');
-    console.log('✅ CORREÇÕES V5.4:');
-    console.log('  1. ✅ Race condition no waitForReply CORRIGIDO');
-    console.log('  2. ✅ Proteção contra mensagens duplicadas');
-    console.log('  3. ✅ Timeout de resposta (30s)');
-    console.log('  4. ✅ Rastreamento de steps enviados');
-    console.log('  5. ✅ Sticky instance corrigida');
+    console.log('✅ CORREÇÕES V5.5:');
+    console.log('  1. ✅ Timeout de 30s REMOVIDO');
+    console.log('  2. ✅ Sistema só avança SE o cliente responder');
+    console.log('  3. ✅ Formatação de telefone PerfectPay CORRIGIDA');
+    console.log('  4. ✅ Logs detalhados do webhook Evolution');
+    console.log('  5. ✅ Proteção contra duplicação de mensagens');
+    console.log('  6. ✅ Sticky instance mantida corretamente');
     console.log('');
     console.log('📡 Endpoints:');
-    console.log('  POST /webhook/kirvano           - Eventos Kirvano');
-    console.log('  POST /webhook/perfect           - Eventos PerfectPay');
-    console.log('  POST /webhook/evolution         - Mensagens WhatsApp');
-    console.log('  GET  /api/dashboard             - Dashboard');
-    console.log('  GET  /api/logs                  - Logs');
-    console.log('  GET  /api/funnels               - Funis');
-    console.log('  GET  /api/phrases               - Frases');
-    console.log('  GET  /api/campaigns             - Campanhas');
-    console.log('  GET  /api/conversations         - Conversas');
+    console.log('  POST /webhook/kirvano       - Eventos Kirvano');
+    console.log('  POST /webhook/perfectpay    - Eventos PerfectPay');
+    console.log('  POST /webhook/evolution     - Mensagens WhatsApp');
     console.log('');
     console.log('🌐 Frontend:');
-    console.log('  http://localhost:' + PORT + '           - Dashboard principal');
-    console.log('  http://localhost:' + PORT + '/logs.html - Sistema de logs');
-    console.log('  http://localhost:' + PORT + '/teste.html - Simulador de testes');
+    console.log('  http://localhost:' + PORT + '           - Dashboard');
+    console.log('  http://localhost:' + PORT + '/logs.html - Logs');
     console.log('='.repeat(70));
     
     await initializeData();
