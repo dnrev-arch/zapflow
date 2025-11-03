@@ -35,7 +35,7 @@ const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09'
 // ============ ARMAZENAMENTO ============
 let conversations = new Map();
 let phoneIndex = new Map();
-let remoteJidIndex = new Map(); // ✅ NOVO: Índice por remoteJid completo
+let remoteJidIndex = new Map();
 let stickyInstances = new Map();
 let pixTimeouts = new Map();
 let webhookLocks = new Map();
@@ -162,7 +162,7 @@ async function saveConversationsToFile() {
         await fs.writeFile(CONVERSATIONS_FILE, JSON.stringify({
             conversations: conversationsArray,
             phoneIndex: Array.from(phoneIndex.entries()),
-            remoteJidIndex: Array.from(remoteJidIndex.entries()), // ✅ SALVAR ÍNDICE
+            remoteJidIndex: Array.from(remoteJidIndex.entries()),
             stickyInstances: Array.from(stickyInstances.entries()),
             completedLeads: Array.from(completedLeads.entries())
         }, null, 2));
@@ -194,7 +194,6 @@ async function loadConversationsFromFile() {
         phoneIndex.clear();
         parsed.phoneIndex.forEach(([key, value]) => phoneIndex.set(key, value));
         
-        // ✅ CARREGAR ÍNDICE DE REMOTEJID
         remoteJidIndex.clear();
         if (parsed.remoteJidIndex) {
             parsed.remoteJidIndex.forEach(([key, value]) => remoteJidIndex.set(key, value));
@@ -241,26 +240,22 @@ function registerPhone(fullPhone, phoneKey) {
     if (!cleaned.startsWith('55')) phoneIndex.set('55' + cleaned, phoneKey);
 }
 
-// ✅ NOVA FUNÇÃO: Registrar remoteJid completo
 function registerRemoteJid(remoteJid, phoneKey) {
     if (!remoteJid || !phoneKey) return;
     remoteJidIndex.set(remoteJid, phoneKey);
     addLog('REMOTEJID_REGISTERED', `${remoteJid} → ${phoneKey}`);
 }
 
-// ✅ BUSCA MELHORADA: 3 tentativas
 function findConversationByPhone(phone) {
     const phoneKey = extractPhoneKey(phone);
     if (!phoneKey || phoneKey.length !== 8) return null;
     
-    // Tentativa 1: Buscar direto por phoneKey
     const conversation = conversations.get(phoneKey);
     if (conversation) {
         registerPhone(phone, phoneKey);
         return conversation;
     }
     
-    // Tentativa 2: Buscar no índice de telefones
     const cleaned = phone.replace(/\D/g, '');
     const indexedKey = phoneIndex.get(cleaned) || 
                        phoneIndex.get(cleaned.substring(2)) || 
@@ -277,11 +272,9 @@ function findConversationByPhone(phone) {
     return null;
 }
 
-// ✅ NOVA FUNÇÃO: Buscar por remoteJid completo
 function findConversationByRemoteJid(remoteJid) {
     if (!remoteJid) return null;
     
-    // Tentar buscar no índice de remoteJid
     const phoneKey = remoteJidIndex.get(remoteJid);
     if (phoneKey) {
         const conv = conversations.get(phoneKey);
@@ -291,7 +284,6 @@ function findConversationByRemoteJid(remoteJid) {
         }
     }
     
-    // Fallback: tentar extrair telefone do remoteJid
     const phone = remoteJid.replace('@s.whatsapp.net', '');
     return findConversationByPhone(phone);
 }
@@ -463,7 +455,7 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
         canceled: false, completed: false
     };
     conversations.set(phoneKey, conversation);
-    registerRemoteJid(remoteJid, phoneKey); // ✅ REGISTRAR
+    registerRemoteJid(remoteJid, phoneKey);
     addLog('PIX_WAITING_CREATED', `PIX para ${phoneKey}`);
     
     const timeout = setTimeout(async () => {
@@ -507,7 +499,7 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
     };
     
     conversations.set(phoneKey, approvedConv);
-    registerRemoteJid(remoteJid, phoneKey); // ✅ REGISTRAR
+    registerRemoteJid(remoteJid, phoneKey);
     addLog('TRANSFER_PIX_TO_APPROVED', `Transferido ${phoneKey}`);
     await sendStep(phoneKey);
 }
@@ -527,7 +519,7 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
     };
     
     conversations.set(phoneKey, conversation);
-    registerRemoteJid(remoteJid, phoneKey); // ✅ REGISTRAR
+    registerRemoteJid(remoteJid, phoneKey);
     addLog('FUNNEL_START', `Iniciando ${funnelId} para ${phoneKey}`);
     await sendStep(phoneKey);
 }
@@ -628,6 +620,7 @@ async function advanceConversation(phoneKey, replyText, reason) {
 }
 
 // ============ WEBHOOKS ============
+// ✅ CORREÇÃO 1: SALE_APPROVED AGORA FUNCIONA
 app.post('/webhook/kirvano', async (req, res) => {
     try {
         const data = req.body;
@@ -654,21 +647,29 @@ app.post('/webhook/kirvano', async (req, res) => {
         
         addLog('KIRVANO_EVENT', `${event} - ${customerName}`, { orderCode, phoneKey });
         
+        // ✅ DEFINIR isApproved e isPix ANTES
+        const isApproved = event.includes('APPROVED') || event.includes('PAID') || status === 'APPROVED';
+        const isPix = method.includes('PIX') || event.includes('PIX');
+        
         const existingConv = conversations.get(phoneKey);
         if (existingConv && !existingConv.canceled && !existingConv.completed) {
             if (existingConv.orderCode === orderCode) {
                 return res.json({ success: true });
             }
-            const timeSince = Date.now() - new Date(existingConv.createdAt).getTime();
-            if (timeSince < 300000) {
-                return res.json({ success: true });
+            
+            // ✅ PERMITIR APROVAÇÃO DE PIX
+            if (isApproved && existingConv.funnelId && existingConv.funnelId.endsWith('_PIX')) {
+                addLog('KIRVANO_PIX_PAYMENT_APPROVED', `Pagamento PIX aprovado para ${phoneKey}`);
+                // NÃO retornar - continuar para processar
+            } else {
+                const timeSince = Date.now() - new Date(existingConv.createdAt).getTime();
+                if (timeSince < 300000) {
+                    return res.json({ success: true });
+                }
+                existingConv.canceled = true;
+                conversations.set(phoneKey, existingConv);
             }
-            existingConv.canceled = true;
-            conversations.set(phoneKey, existingConv);
         }
-        
-        const isApproved = event.includes('APPROVED') || event.includes('PAID') || status === 'APPROVED';
-        const isPix = method.includes('PIX') || event.includes('PIX');
         
         if (isApproved) {
             const pixConv = conversations.get(phoneKey);
@@ -747,7 +748,6 @@ app.post('/webhook/perfectpay', async (req, res) => {
     }
 });
 
-// ✅ WEBHOOK EVOLUTION - 100% CORRIGIDO
 app.post('/webhook/evolution', async (req, res) => {
     let phoneKey;
     try {
@@ -780,16 +780,13 @@ app.post('/webhook/evolution', async (req, res) => {
         }
         
         try {
-            // ✅ BUSCA MELHORADA: 3 métodos
             let conversation = findConversationByPhone(incomingPhone);
             
             if (!conversation) {
-                // ✅ Tentativa 2: Buscar por remoteJid completo
                 conversation = findConversationByRemoteJid(remoteJid);
             }
             
             if (!conversation) {
-                // ✅ Tentativa 3: Buscar em todas as conversas (último recurso)
                 const allConversations = Array.from(conversations.values());
                 conversation = allConversations.find(conv => {
                     const convJid = conv.remoteJid || '';
@@ -814,7 +811,6 @@ app.post('/webhook/evolution', async (req, res) => {
                 return res.json({ success: true });
             }
             
-            // ✅ VERIFICAÇÃO DUPLA
             if (!conversation.waiting_for_response) {
                 const funnel = funis.get(conversation.funnelId);
                 const currentStep = funnel?.steps[conversation.stepIndex];
@@ -937,13 +933,30 @@ app.post('/api/funnels/import', (req, res) => {
     }
 });
 
+// ✅ CORREÇÃO 2: DASHBOARD AGORA MOSTRA TUDO
 app.get('/api/conversations', (req, res) => {
     const list = Array.from(conversations.entries()).map(([key, conv]) => ({
-        phoneKey: key, customerName: conv.customerName,
-        funnelId: conv.funnelId, stepIndex: conv.stepIndex,
-        waiting_for_response: conv.waiting_for_response,
-        completed: conv.completed, canceled: conv.canceled
+        phoneKey: key,
+        phone: conv.remoteJid ? conv.remoteJid.replace('@s.whatsapp.net', '') : 'N/A',
+        customerName: conv.customerName || 'Cliente',
+        productType: conv.productType || 'CS',
+        funnelId: conv.funnelId || 'N/A',
+        stepIndex: conv.stepIndex || 0,
+        waiting_for_response: conv.waiting_for_response || false,
+        pixWaiting: conv.pixWaiting || false,
+        createdAt: conv.createdAt ? conv.createdAt.toISOString() : new Date().toISOString(),
+        lastSystemMessage: conv.lastSystemMessage ? conv.lastSystemMessage.toISOString() : null,
+        lastReply: conv.lastReply ? conv.lastReply.toISOString() : null,
+        orderCode: conv.orderCode || 'N/A',
+        amount: conv.amount || 'R$ 0,00',
+        stickyInstance: stickyInstances.get(key) || '-',
+        canceled: conv.canceled || false,
+        completed: conv.completed || false,
+        transferredFromPix: conv.transferredFromPix || false
     }));
+    
+    list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
     res.json({ success: true, data: list });
 });
 
@@ -976,21 +989,22 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO V6.0 - SOLUÇÃO FINAL 100%');
+    console.log('🚀 KIRVANO V6.1 - CORREÇÕES CRÍTICAS APLICADAS');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('');
     console.log('✅ CORREÇÕES APLICADAS:');
-    console.log('  1. ✅ Busca por 3 métodos (phoneKey, remoteJid, scan)');
-    console.log('  2. ✅ Índice de remoteJid persistido');
-    console.log('  3. ✅ Lock timeout 30s');
-    console.log('  4. ✅ Verificação dupla webhook');
-    console.log('  5. ✅ Logs completos');
+    console.log('  1. ✅ Bug SALE_APPROVED corrigido');
+    console.log('  2. ✅ Dashboard mostrando dados completos');
+    console.log('  3. ✅ Busca por 3 métodos');
+    console.log('  4. ✅ Índice de remoteJid');
+    console.log('  5. ✅ Lock timeout 30s');
+    console.log('  6. ✅ Verificação dupla webhook');
     console.log('');
     console.log('🎯 GARANTE:');
+    console.log('  - SALE_APPROVED transfere PIX corretamente');
+    console.log('  - Dashboard mostra telefone, instância e data');
     console.log('  - Lead responde → SEMPRE avança');
-    console.log('  - Telefone sempre encontrado');
-    console.log('  - Sem timeouts');
     console.log('');
     console.log('🌐 http://localhost:' + PORT);
     console.log('='.repeat(70));
