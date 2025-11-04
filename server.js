@@ -1089,12 +1089,16 @@ app.post('/webhook/perfectpay', async (req, res) => {
     }
 });
 
-// ✅ WEBHOOK EVOLUTION - ULTRA CORRIGIDO
+// ✅ WEBHOOK EVOLUTION - V7.2 CORRIGIDO COM LOGS DETALHADOS
 app.post('/webhook/evolution', async (req, res) => {
     let phoneKey;
     try {
         const data = req.body;
         const messageData = data.data;
+        
+        // ✅ LOG VISUAL: Início
+        console.log('🔔 ========== WEBHOOK RECEBIDO ==========');
+        console.log('   Timestamp:', new Date().toISOString());
         
         if (!messageData || !messageData.key) {
             return res.json({ success: true });
@@ -1109,7 +1113,14 @@ app.post('/webhook/evolution', async (req, res) => {
         const incomingPhone = remoteJid.replace('@s.whatsapp.net', '');
         phoneKey = extractPhoneKey(incomingPhone);
         
+        // ✅ LOG VISUAL: Dados extraídos
+        console.log('   📱 RemoteJid:', remoteJid);
+        console.log('   🔑 PhoneKey:', phoneKey);
+        console.log('   💬 Mensagem:', messageText.substring(0, 50));
+        
         if (!phoneKey) {
+            console.log('   ❌ PhoneKey inválido!');
+            console.log('========================================');
             return res.json({ success: true });
         }
         
@@ -1134,6 +1145,11 @@ app.post('/webhook/evolution', async (req, res) => {
             }
             
             if (!conversation) {
+                // ✅ LOG VISUAL: Buscando por scan
+                console.log('   🔍 Buscando por scan...');
+                console.log('   🔍 Total conversas:', conversations.size);
+                console.log('   🔍 Keys:', Array.from(conversations.keys()).slice(0, 5).join(', '));
+                
                 const allConversations = Array.from(conversations.values());
                 conversation = allConversations.find(conv => {
                     const convJid = conv.remoteJid || '';
@@ -1143,17 +1159,30 @@ app.post('/webhook/evolution', async (req, res) => {
                 });
                 
                 if (conversation) {
+                    console.log('   ✅ ENCONTRADA por scan!');
                     addLog('CONVERSATION_FOUND_FALLBACK', `✅ Encontrado por scan completo`, { phoneKey });
                     registerRemoteJid(remoteJid, phoneKey);
+                } else {
+                    console.log('   ❌ NÃO ENCONTRADA!');
                 }
+            } else {
+                console.log('   ✅ CONVERSA ENCONTRADA!');
             }
             
             if (!conversation) {
+                console.log('========================================');
                 addLog('WEBHOOK_NO_CONVERSATION', `⚠️ Nenhuma conversa ativa`, { phoneKey });
                 return res.json({ success: true });
             }
             
+            // ✅ LOG VISUAL: Info da conversa
+            console.log('   📋 FunnelId:', conversation.funnelId);
+            console.log('   📋 StepIndex:', conversation.stepIndex);
+            console.log('   📋 Waiting:', conversation.waiting_for_response);
+            
             if (conversation.canceled) {
+                console.log('   ⏭️ Conversa cancelada');
+                console.log('========================================');
                 addLog('WEBHOOK_CANCELED', `⏭️ Conversa cancelada`, { phoneKey });
                 return res.json({ success: true });
             }
@@ -1163,15 +1192,24 @@ app.post('/webhook/evolution', async (req, res) => {
             const currentStep = funnel?.steps[conversation.stepIndex];
             
             if (!currentStep) {
+                console.log('   ❌ Passo não encontrado!');
+                console.log('========================================');
                 addLog('WEBHOOK_NO_STEP', `⚠️ Sem passo válido`, { phoneKey });
                 return res.json({ success: true });
             }
+            
+            console.log('   📝 Passo tipo:', currentStep.type);
+            console.log('   📝 WaitForReply:', currentStep.waitForReply);
             
             const shouldWait = currentStep.waitForReply && 
                               currentStep.type !== 'delay' && 
                               currentStep.type !== 'typing';
             
+            console.log('   🤔 Deveria esperar?', shouldWait);
+            
             if (!shouldWait) {
+                console.log('   ⏭️ Passo não espera resposta');
+                console.log('========================================');
                 addLog('WEBHOOK_STEP_NOT_WAITING', `⚠️ Passo ${conversation.stepIndex} não espera resposta`, { 
                     phoneKey,
                     stepType: currentStep.type,
@@ -1180,14 +1218,18 @@ app.post('/webhook/evolution', async (req, res) => {
                 return res.json({ success: true });
             }
             
-            // ✅ Se deveria esperar mas flag está false, corrige E SALVA
+            // ✅ CORREÇÃO: Se deveria esperar mas flag está false, corrige E SALVA
             if (!conversation.waiting_for_response) {
+                console.log('   ⚠️ FLAG INCORRETA! Corrigindo...');
                 addLog('WEBHOOK_FIX_FLAG', `🔧 Corrigindo flag (deveria estar esperando)`, { phoneKey });
                 conversation.waiting_for_response = true;
                 conversations.set(phoneKey, conversation); // ✅ SALVA AQUI!
             }
             
             // Processa a resposta
+            console.log('   ✅ PROCESSANDO RESPOSTA!');
+            console.log('========================================');
+            
             addLog('CLIENT_REPLY', `✅ Resposta do cliente processada`, { 
                 phoneKey, 
                 step: conversation.stepIndex,
@@ -1207,6 +1249,8 @@ app.post('/webhook/evolution', async (req, res) => {
             releaseWebhookLock(phoneKey);
         }
     } catch (error) {
+        console.log('❌ ERRO NO WEBHOOK:', error.message);
+        console.log('========================================');
         addLog('EVOLUTION_ERROR', `❌ ${error.message}`, { phoneKey });
         if (phoneKey) releaseWebhookLock(phoneKey);
         res.status(500).json({ success: false, error: error.message });
@@ -1484,29 +1528,20 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO V7.0 - CORREÇÕES CRÍTICAS APLICADAS');
+    console.log('🚀 KIRVANO V7.2 - CORREÇÃO APLICADA COM LOGS DETALHADOS');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
     console.log('');
-    console.log('✅ CORREÇÕES V7.0:');
-    console.log('  1. ✅ Marca waiting ANTES de enviar (bug principal)');
-    console.log('  2. ✅ Healthcheck automático (pula offline)');
-    console.log('  3. ✅ Detecção números 11 dígitos (sem colisão)');
-    console.log('  4. ✅ Sticky instance GARANTIDA (nunca muda)');
-    console.log('  5. ✅ Lock force-release após 30s');
-    console.log('  6. ✅ Sistema PIX 7min mantido');
-    console.log('  7. ✅ Delays 100% respeitados');
-    console.log('  8. ✅ Logs detalhados com emojis');
-    console.log('  9. ✅ Todas 15 instâncias no código');
-    console.log(' 10. ✅ Correção flag + save simultâneo');
+    console.log('✅ CORREÇÕES V7.2:');
+    console.log('  1. ✅ Logs VISUAIS no webhook (diagnóstico fácil)');
+    console.log('  2. ✅ Detecção + correção automática de flag');
+    console.log('  3. ✅ Verifica se DEVERIA estar esperando');
+    console.log('  4. ✅ TUDO MAIS permanece IGUAL');
     console.log('');
-    console.log('🎯 GARANTE:');
-    console.log('  - Cliente responde → SEMPRE avança');
-    console.log('  - Instância fixa → NUNCA muda');
-    console.log('  - Delays → 100% respeitados');
-    console.log('  - PIX → Transfere corretamente');
-    console.log('  - Áudios → Como gravação');
+    console.log('🎯 QUANDO CLIENTE RESPONDER:');
+    console.log('  - Você verá logs detalhados no console');
+    console.log('  - Saberá exatamente onde está o problema');
     console.log('');
     console.log('🌐 http://localhost:' + PORT);
     console.log('🔍 Debug: http://localhost:' + PORT + '/api/debug/instances');
