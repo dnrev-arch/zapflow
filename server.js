@@ -30,7 +30,7 @@ function identifyPerfectPayProduct(productCode, planCode) {
     return 'CS';
 }
 
-const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'D11', 'D12'];
+const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'D11', 'D112', 'D13', 'D14', 'D15'];
 
 // ============ ARMAZENAMENTO ============
 let conversations = new Map();
