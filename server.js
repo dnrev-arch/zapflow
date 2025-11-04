@@ -464,6 +464,14 @@ async function getHealthyInstances() {
 // ============ EVOLUTION API ============
 async function sendToEvolution(instanceName, endpoint, payload) {
     const url = EVOLUTION_BASE_URL + endpoint + '/' + instanceName;
+    
+    addLog('EVOLUTION_REQUEST', `📡 Request para Evolution`, { 
+        instanceName, 
+        endpoint, 
+        url,
+        payloadSize: JSON.stringify(payload).length 
+    });
+    
     try {
         const response = await axios.post(url, payload, {
             headers: { 'Content-Type': 'application/json', 'apikey': EVOLUTION_API_KEY },
@@ -479,6 +487,7 @@ async function sendToEvolution(instanceName, endpoint, payload) {
         
         addLog('EVOLUTION_SUCCESS', `✅ OK ${instanceName}`);
         return { ok: true, data: response.data };
+        
     } catch (error) {
         // Marca como unhealthy
         instancesHealth.set(instanceName, {
@@ -487,8 +496,25 @@ async function sendToEvolution(instanceName, endpoint, payload) {
             error: error.message
         });
         
-        addLog('EVOLUTION_ERROR', `❌ ${instanceName}: ${error.response?.status || error.message}`);
-        return { ok: false, error: error.response?.data || error.message };
+        const statusCode = error.response?.status;
+        const errorData = error.response?.data;
+        const errorMessage = error.message;
+        
+        // Log detalhado do erro
+        addLog('EVOLUTION_ERROR', `❌ ${instanceName}: ${statusCode || 'TIMEOUT'}`, {
+            instanceName,
+            endpoint,
+            statusCode,
+            errorMessage,
+            errorData: errorData ? JSON.stringify(errorData).substring(0, 200) : null,
+            payloadPreview: JSON.stringify(payload).substring(0, 100) + '...'
+        });
+        
+        return { 
+            ok: false, 
+            error: errorData || errorMessage,
+            statusCode: statusCode
+        };
     }
 }
 
@@ -518,33 +544,87 @@ async function sendVideo(remoteJid, videoUrl, caption, instanceName) {
 }
 
 async function sendAudio(remoteJid, audioUrl, instanceName) {
+    const number = remoteJid.replace('@s.whatsapp.net', '');
+    
+    addLog('AUDIO_SEND_START', `🎵 Tentando enviar áudio`, { 
+        instanceName, 
+        number, 
+        audioUrl: audioUrl.substring(0, 60) + '...' 
+    });
+    
     try {
+        // Tenta baixar o áudio
+        addLog('AUDIO_DOWNLOAD_START', `⬇️ Baixando áudio...`, { instanceName });
         const audioResponse = await axios.get(audioUrl, {
             responseType: 'arraybuffer', 
             timeout: 30000,
             headers: { 'User-Agent': 'Mozilla/5.0' }
         });
+        
+        addLog('AUDIO_DOWNLOAD_SUCCESS', `✅ Áudio baixado: ${audioResponse.data.length} bytes`, { instanceName });
+        
+        // Converte para base64
         const base64Audio = Buffer.from(audioResponse.data, 'binary').toString('base64');
         const audioBase64 = `data:audio/mpeg;base64,${base64Audio}`;
+        const base64Size = audioBase64.length;
         
-        const result = await sendToEvolution(instanceName, '/message/sendWhatsAppAudio', {
-            number: remoteJid.replace('@s.whatsapp.net', ''),
+        addLog('AUDIO_CONVERT_SUCCESS', `✅ Convertido para base64: ${base64Size} chars`, { instanceName });
+        
+        // Tenta método 1: sendWhatsAppAudio
+        addLog('AUDIO_METHOD_1', `📤 Tentando método sendWhatsAppAudio...`, { instanceName });
+        const result1 = await sendToEvolution(instanceName, '/message/sendWhatsAppAudio', {
+            number: number,
             audio: audioBase64, 
             delay: 1200, 
             encoding: true
         });
         
-        if (result.ok) return result;
+        if (result1.ok) {
+            addLog('AUDIO_METHOD_1_SUCCESS', `✅ Método 1 funcionou!`, { instanceName });
+            return result1;
+        }
         
-        return await sendToEvolution(instanceName, '/message/sendMedia', {
-            number: remoteJid.replace('@s.whatsapp.net', ''),
+        addLog('AUDIO_METHOD_1_FAILED', `❌ Método 1 falhou, tentando método 2...`, { 
+            instanceName,
+            error: result1.error 
+        });
+        
+        // Tenta método 2: sendMedia
+        addLog('AUDIO_METHOD_2', `📤 Tentando método sendMedia...`, { instanceName });
+        const result2 = await sendToEvolution(instanceName, '/message/sendMedia', {
+            number: number,
             mediatype: 'audio', 
             media: audioBase64, 
             mimetype: 'audio/mpeg'
         });
-    } catch (error) {
+        
+        if (result2.ok) {
+            addLog('AUDIO_METHOD_2_SUCCESS', `✅ Método 2 funcionou!`, { instanceName });
+            return result2;
+        }
+        
+        addLog('AUDIO_METHOD_2_FAILED', `❌ Método 2 falhou, tentando método 3 (URL direta)...`, { 
+            instanceName,
+            error: result2.error 
+        });
+        
+        // Método 3: Tenta com URL direta (fallback)
         return await sendToEvolution(instanceName, '/message/sendWhatsAppAudio', {
-            number: remoteJid.replace('@s.whatsapp.net', ''),
+            number: number,
+            audio: audioUrl, 
+            delay: 1200
+        });
+        
+    } catch (error) {
+        addLog('AUDIO_DOWNLOAD_ERROR', `❌ Erro ao baixar/processar: ${error.message}`, { 
+            instanceName,
+            error: error.message 
+        });
+        
+        // Fallback: tenta com URL direta
+        addLog('AUDIO_METHOD_3', `📤 Fallback: tentando URL direta...`, { instanceName });
+        return await sendToEvolution(instanceName, '/message/sendWhatsAppAudio', {
+            number: number,
             audio: audioUrl, 
             delay: 1200
         });
@@ -1292,8 +1372,85 @@ app.get('/api/debug/instances', async (req, res) => {
     });
 });
 
+// ✅ NOVO: Endpoint de teste de mensagens
+app.post('/api/test/send', async (req, res) => {
+    const { phone, message, type, instanceName } = req.body;
+    
+    if (!phone || !message) {
+        return res.status(400).json({ 
+            success: false, 
+            error: 'phone e message são obrigatórios' 
+        });
+    }
+    
+    try {
+        const remoteJid = phoneToRemoteJid(phone);
+        
+        addLog('TEST_SEND', `🧪 Teste de envio iniciado`, { 
+            phone, 
+            type: type || 'text',
+            instanceName: instanceName || 'auto'
+        });
+        
+        let result;
+        
+        if (instanceName) {
+            // Testa instância específica
+            if (type === 'text' || !type) {
+                result = await sendText(remoteJid, message, instanceName);
+            } else if (type === 'audio') {
+                result = await sendAudio(remoteJid, message, instanceName);
+            }
+        } else {
+            // Testa todas instâncias saudáveis
+            const healthyInstances = await getHealthyInstances();
+            const results = [];
+            
+            for (const inst of healthyInstances.slice(0, 3)) { // Testa só 3
+                addLog('TEST_SEND_TRY', `🧪 Testando ${inst}...`);
+                
+                const testResult = await sendText(remoteJid, message, inst);
+                results.push({
+                    instance: inst,
+                    success: testResult.ok,
+                    error: testResult.error || null
+                });
+                
+                if (testResult.ok) {
+                    result = testResult;
+                    break;
+                }
+            }
+            
+            if (!result || !result.ok) {
+                return res.json({
+                    success: false,
+                    message: 'Nenhuma instância conseguiu enviar',
+                    results: results
+                });
+            }
+        }
+        
+        res.json({
+            success: result.ok,
+            data: result.data,
+            error: result.error || null
+        });
+        
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/diagnostic', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'diagnostic.html'));
 });
 
 // Limpeza de locks travados
