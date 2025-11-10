@@ -741,9 +741,13 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
     await sendStep(phoneKey);
 }
 
+// ✅ ============ SENDSTEP CORRIGIDO V4.4 ============
 async function sendStep(phoneKey) {
     const conversation = conversations.get(phoneKey);
-    if (!conversation) return;
+    if (!conversation) {
+        addLog('SENDSTEP_NO_CONV', `Conversa não encontrada`, { phoneKey });
+        return;
+    }
     
     if (conversation.canceled) {
         addLog('STEP_CANCELED', `Conversa cancelada`, { phoneKey });
@@ -756,58 +760,104 @@ async function sendStep(phoneKey) {
     }
     
     const funnel = funis.get(conversation.funnelId);
-    if (!funnel) return;
+    if (!funnel) {
+        addLog('SENDSTEP_NO_FUNNEL', `Funil não encontrado`, { 
+            phoneKey, 
+            funnelId: conversation.funnelId 
+        });
+        return;
+    }
     
     const step = funnel.steps[conversation.stepIndex];
-    if (!step) return;
+    if (!step) {
+        addLog('SENDSTEP_NO_STEP', `Passo não encontrado`, { 
+            phoneKey, 
+            stepIndex: conversation.stepIndex,
+            totalSteps: funnel.steps.length 
+        });
+        return;
+    }
     
     const isFirstMessage = conversation.stepIndex === 0 && !conversation.lastSystemMessage;
     
-    addLog('STEP_SEND_START', `Enviando passo ${conversation.stepIndex}`, { 
+    addLog('STEP_SEND_START', `📤 Enviando passo ${conversation.stepIndex}`, { 
         phoneKey,
         funnelId: conversation.funnelId,
-        stepType: step.type
+        stepType: step.type,
+        waitForReply: step.waitForReply,
+        isFirstMessage
     });
     
     let result = { success: true };
     
+    // Delay antes (se configurado)
     if (step.delayBefore && step.delayBefore > 0) {
         const delaySeconds = parseInt(step.delayBefore);
-        addLog('STEP_DELAY_BEFORE', `Aguardando ${delaySeconds}s antes de enviar`, { phoneKey });
+        addLog('STEP_DELAY_BEFORE', `⏰ Aguardando ${delaySeconds}s antes de enviar`, { phoneKey });
         await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
     }
     
+    // Mostrar "digitando..." (se configurado)
     if (step.showTyping && step.type !== 'delay' && step.type !== 'typing') {
-        addLog('STEP_SHOW_TYPING', `Mostrando "digitando..." por 3s`, { phoneKey });
+        addLog('STEP_SHOW_TYPING', `💬 Mostrando "digitando..." por 3s`, { phoneKey });
         await new Promise(resolve => setTimeout(resolve, 3000));
     }
     
+    // Processar o passo
     if (step.type === 'delay') {
         const delaySeconds = step.delaySeconds || 10;
-        addLog('STEP_DELAY', `Delay de ${delaySeconds}s`, { phoneKey });
+        addLog('STEP_DELAY', `⏰ Delay de ${delaySeconds}s`, { phoneKey });
         await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
     } else if (step.type === 'typing') {
         const typingSeconds = step.typingSeconds || 3;
-        addLog('STEP_TYPING', `Digitando ${typingSeconds}s`, { phoneKey });
+        addLog('STEP_TYPING', `💬 Digitando ${typingSeconds}s`, { phoneKey });
         await new Promise(resolve => setTimeout(resolve, typingSeconds * 1000));
     } else {
-        result = await sendWithFallback(phoneKey, conversation.remoteJid, step.type, step.text, step.mediaUrl, isFirstMessage);
+        // Enviar mensagem real
+        result = await sendWithFallback(
+            phoneKey, 
+            conversation.remoteJid, 
+            step.type, 
+            step.text, 
+            step.mediaUrl, 
+            isFirstMessage
+        );
     }
     
     if (result.success) {
         conversation.lastSystemMessage = new Date();
         
+        // ✅ MUDANÇA CRÍTICA: Salvar IMEDIATAMENTE após marcar waiting_for_response
         if (step.waitForReply && step.type !== 'delay' && step.type !== 'typing') {
             conversation.waiting_for_response = true;
             conversations.set(phoneKey, conversation);
-            addLog('STEP_WAITING_REPLY', `Aguardando resposta passo ${conversation.stepIndex}`, { phoneKey });
+            
+            // ✅ SALVAR IMEDIATAMENTE!
+            await saveConversationsToFile();
+            
+            addLog('STEP_WAITING_REPLY', `⏸️ Aguardando resposta passo ${conversation.stepIndex}`, { 
+                phoneKey,
+                waitingSince: new Date().toISOString()
+            });
         } else {
             conversations.set(phoneKey, conversation);
-            addLog('STEP_AUTO_ADVANCE', `Avançando automaticamente passo ${conversation.stepIndex}`, { phoneKey });
+            addLog('STEP_AUTO_ADVANCE', `➡️ Avançando automaticamente passo ${conversation.stepIndex}`, { phoneKey });
             await advanceConversation(phoneKey, null, 'auto');
         }
     } else {
-        addLog('STEP_FAILED', `Falha no envio`, { phoneKey, error: result.error });
+        addLog('STEP_FAILED', `❌ Falha no envio`, { 
+            phoneKey, 
+            error: result.error,
+            stepIndex: conversation.stepIndex,
+            stepType: step.type
+        });
+        
+        // ✅ Marcar erro na conversa
+        conversation.hasError = true;
+        conversation.errorMessage = result.error;
+        conversation.errorAt = new Date();
+        conversations.set(phoneKey, conversation);
+        await saveConversationsToFile();
     }
 }
 
@@ -916,7 +966,7 @@ app.post('/webhook/kirvano', async (req, res) => {
     }
 });
 
-// ✨ WEBHOOK PERFECTPAY COM DEBUG ULTRA DETALHADO
+// WEBHOOK PERFECTPAY
 app.post('/webhook/perfectpay', async (req, res) => {
     try {
         addLog('PERFECTPAY_WEBHOOK_RECEIVED', '🎯 Webhook PerfectPay RECEBIDO!', {
@@ -1180,62 +1230,240 @@ app.post('/webhook/perfectpay', async (req, res) => {
     }
 });
 
-// WEBHOOK EVOLUTION
+// ✅ ============ WEBHOOK EVOLUTION CORRIGIDO V4.4 ============
 app.post('/webhook/evolution', async (req, res) => {
+    const debugId = Date.now();
+    
     try {
+        addLog('WEBHOOK_RECEIVED', `[${debugId}] 📥 Webhook recebido`, {
+            bodySize: JSON.stringify(req.body).length,
+            timestamp: new Date().toISOString()
+        });
+        
         const data = req.body;
         const messageData = data.data;
         
+        // ✅ Log completo do payload
+        addLog('WEBHOOK_RAW_DATA', `[${debugId}] 📦 Payload completo`, {
+            hasData: !!data,
+            hasMessageData: !!messageData,
+            hasKey: !!messageData?.key,
+            fullPayload: JSON.stringify(data, null, 2)
+        });
+        
         if (!messageData || !messageData.key) {
+            addLog('WEBHOOK_INVALID', `[${debugId}] ❌ Payload inválido - sem messageData ou key`, { data });
             return res.json({ success: true });
         }
         
         const remoteJid = messageData.key.remoteJid;
         const fromMe = messageData.key.fromMe;
         const messageText = extractMessageText(messageData.message);
+        const messageType = Object.keys(messageData.message || {})[0];
+        
+        addLog('WEBHOOK_PARSED', `[${debugId}] 🔍 Dados extraídos`, {
+            remoteJid,
+            fromMe,
+            messageType,
+            messageText: messageText.substring(0, 100),
+            hasMessage: !!messageData.message
+        });
         
         const incomingPhone = remoteJid.replace('@s.whatsapp.net', '');
-        const phoneKey = extractPhoneKey(incomingPhone);
+        let phoneKey = extractPhoneKey(incomingPhone);
+        
+        addLog('WEBHOOK_PHONE_EXTRACTED', `[${debugId}] 📞 Telefone processado`, {
+            remoteJid,
+            incomingPhone,
+            phoneKey,
+            phoneKeyLength: phoneKey?.length,
+            phoneKeyValid: phoneKey && phoneKey.length === 8
+        });
         
         if (!phoneKey || phoneKey.length !== 8) {
+            addLog('WEBHOOK_INVALID_PHONE', `[${debugId}] ❌ Telefone inválido`, { 
+                incomingPhone, 
+                phoneKey,
+                phoneKeyLength: phoneKey?.length 
+            });
             return res.json({ success: true });
         }
         
         if (fromMe) {
+            addLog('WEBHOOK_FROM_ME', `[${debugId}] 🤖 Mensagem do sistema - ignorando`, { phoneKey });
             return res.json({ success: true });
         }
         
+        // ✅ NOVO: Tentar múltiplas formas de encontrar a conversa
+        let conversation = conversations.get(phoneKey);
+        
+        if (!conversation) {
+            addLog('WEBHOOK_TRY_PHONE_INDEX', `[${debugId}] 🔎 Não encontrou direto, tentando phoneIndex`, { 
+                phoneKey,
+                phoneIndexSize: phoneIndex.size 
+            });
+            conversation = findConversationByPhone(incomingPhone);
+        }
+        
+        if (!conversation) {
+            // ✅ NOVO: Tentar encontrar por remoteJid
+            addLog('WEBHOOK_TRY_REMOTE_JID', `[${debugId}] 🔎 Tentando por remoteJid`, { remoteJid });
+            for (const [key, conv] of conversations.entries()) {
+                if (conv.remoteJid === remoteJid) {
+                    conversation = conv;
+                    phoneKey = key;
+                    addLog('WEBHOOK_FOUND_BY_JID', `[${debugId}] ✅ Encontrado por JID!`, { phoneKey });
+                    break;
+                }
+            }
+        }
+        
+        addLog('WEBHOOK_CONVERSATION_STATUS', `[${debugId}] 💬 Status da conversa`, {
+            phoneKey,
+            found: !!conversation,
+            canceled: conversation?.canceled,
+            completed: conversation?.completed,
+            waiting_for_response: conversation?.waiting_for_response,
+            pixWaiting: conversation?.pixWaiting,
+            funnelId: conversation?.funnelId,
+            stepIndex: conversation?.stepIndex,
+            lastSystemMessage: conversation?.lastSystemMessage?.toISOString(),
+            lastReply: conversation?.lastReply?.toISOString(),
+            totalConversations: conversations.size
+        });
+        
+        if (!conversation) {
+            addLog('WEBHOOK_NO_CONVERSATION', `[${debugId}] ⚠️ Nenhuma conversa encontrada`, { 
+                phoneKey,
+                incomingPhone,
+                remoteJid,
+                allPhoneKeys: Array.from(conversations.keys())
+            });
+            return res.json({ success: true });
+        }
+        
+        if (conversation.canceled) {
+            addLog('WEBHOOK_CANCELED', `[${debugId}] ⛔ Conversa cancelada`, { 
+                phoneKey,
+                cancelReason: conversation.cancelReason,
+                canceledAt: conversation.canceledAt 
+            });
+            return res.json({ success: true });
+        }
+        
+        if (conversation.completed) {
+            addLog('WEBHOOK_COMPLETED', `[${debugId}] ✅ Conversa já concluída`, { 
+                phoneKey,
+                completedAt: conversation.completedAt 
+            });
+            return res.json({ success: true });
+        }
+        
+        if (conversation.pixWaiting) {
+            addLog('WEBHOOK_PIX_WAITING', `[${debugId}] ⏳ PIX ainda aguardando timeout`, { 
+                phoneKey,
+                orderCode: conversation.orderCode 
+            });
+            // ✅ NOVO: Registrar que cliente respondeu durante PIX waiting
+            conversation.repliedDuringPixWait = true;
+            conversation.pixWaitReplyAt = new Date();
+            conversations.set(phoneKey, conversation);
+            await saveConversationsToFile(); // Salvar imediatamente
+            return res.json({ success: true });
+        }
+        
+        // ✅ Adquirir lock
         const hasLock = await acquireWebhookLock(phoneKey);
         if (!hasLock) {
+            addLog('WEBHOOK_LOCK_TIMEOUT', `[${debugId}] ⏱️ Timeout no lock`, { phoneKey });
             return res.json({ success: false, message: 'Lock timeout' });
         }
         
         try {
-            const conversation = findConversationByPhone(incomingPhone);
-            
-            if (!conversation || conversation.canceled || !conversation.waiting_for_response) {
-                addLog('WEBHOOK_NOT_WAITING', `Não aguardando resposta`, { phoneKey });
-                return res.json({ success: true });
+            // ✅ MUDANÇA CRÍTICA: Aceitar resposta mesmo se não estiver waiting_for_response
+            if (!conversation.waiting_for_response) {
+                addLog('WEBHOOK_NOT_WAITING_BUT_ACCEPTING', `[${debugId}] ⚠️ Não estava aguardando, mas aceitando resposta`, { 
+                    phoneKey,
+                    stepIndex: conversation.stepIndex,
+                    funnelId: conversation.funnelId,
+                    messageText: messageText.substring(0, 50)
+                });
+                
+                // ✅ Verificar se o passo atual realmente espera resposta
+                const funnel = funis.get(conversation.funnelId);
+                if (funnel && funnel.steps[conversation.stepIndex]) {
+                    const currentStep = funnel.steps[conversation.stepIndex];
+                    
+                    if (currentStep.waitForReply) {
+                        addLog('WEBHOOK_STEP_SHOULD_WAIT', `[${debugId}] ✅ Passo deveria esperar resposta - processando`, { 
+                            phoneKey,
+                            stepIndex: conversation.stepIndex,
+                            stepType: currentStep.type
+                        });
+                    } else {
+                        addLog('WEBHOOK_STEP_NO_WAIT', `[${debugId}] ℹ️ Passo não espera resposta - registrando apenas`, { 
+                            phoneKey,
+                            stepIndex: conversation.stepIndex,
+                            stepType: currentStep.type
+                        });
+                        
+                        // Apenas registrar a resposta mas não avançar
+                        conversation.lastReply = new Date();
+                        conversation.unexpectedReply = messageText;
+                        conversations.set(phoneKey, conversation);
+                        await saveConversationsToFile();
+                        
+                        return res.json({ success: true });
+                    }
+                }
             }
             
-            addLog('CLIENT_REPLY', `Resposta recebida`, { phoneKey, text: messageText.substring(0, 50) });
+            addLog('CLIENT_REPLY', `[${debugId}] 💬 Resposta do cliente`, { 
+                phoneKey, 
+                text: messageText.substring(0, 100),
+                messageType,
+                stepIndex: conversation.stepIndex,
+                funnelId: conversation.funnelId
+            });
             
+            // ✅ Atualizar estado
             conversation.waiting_for_response = false;
             conversation.lastReply = new Date();
+            conversation.lastReplyText = messageText;
             conversations.set(phoneKey, conversation);
             
+            // ✅ Salvar imediatamente
+            await saveConversationsToFile();
+            
+            addLog('WEBHOOK_ADVANCING', `[${debugId}] ➡️ Avançando conversa`, { phoneKey });
+            
+            // ✅ Avançar conversa
             await advanceConversation(phoneKey, messageText, 'reply');
             
-            res.json({ success: true });
+            addLog('WEBHOOK_SUCCESS', `[${debugId}] ✅ Processamento completo`, { phoneKey });
+            
+            res.json({ success: true, phoneKey, debugId });
             
         } finally {
             releaseWebhookLock(phoneKey);
+            addLog('WEBHOOK_LOCK_RELEASED', `[${debugId}] 🔓 Lock liberado`, { phoneKey });
         }
         
     } catch (error) {
-        addLog('EVOLUTION_ERROR', error.message);
-        releaseWebhookLock(phoneKey);
-        res.status(500).json({ success: false, error: error.message });
+        addLog('EVOLUTION_ERROR', `[${debugId}] ❌ ERRO CRÍTICO`, { 
+            error: error.message,
+            stack: error.stack
+        });
+        
+        if (phoneKey) {
+            releaseWebhookLock(phoneKey);
+        }
+        
+        res.status(500).json({ 
+            success: false, 
+            error: error.message,
+            debugId 
+        });
     }
 });
 
@@ -1290,7 +1518,6 @@ app.post('/api/funnels', (req, res) => {
     try {
         const funnel = req.body;
         
-        // Validação completa
         if (!funnel.id || !funnel.name || !funnel.steps) {
             return res.status(400).json({ 
                 success: false, 
@@ -1305,7 +1532,6 @@ app.post('/api/funnels', (req, res) => {
             });
         }
         
-        // Garantir que steps é array válido
         if (!Array.isArray(funnel.steps)) {
             return res.status(400).json({ 
                 success: false, 
@@ -1313,23 +1539,19 @@ app.post('/api/funnels', (req, res) => {
             });
         }
         
-        // Garantir que cada passo tem um ID
         funnel.steps.forEach((step, idx) => {
             if (step && !step.id) {
                 step.id = 'step_' + Date.now() + '_' + idx;
             }
         });
         
-        // Salvar funil
         funis.set(funnel.id, funnel);
         addLog('FUNNEL_SAVED', 'Funil salvo: ' + funnel.id, {
             stepCount: funnel.steps.length
         });
         
-        // Persistir em arquivo
         saveFunnelsToFile();
         
-        // Retornar funil completo
         res.json({ 
             success: true, 
             message: 'Funil salvo com sucesso', 
@@ -1345,13 +1567,11 @@ app.post('/api/funnels', (req, res) => {
     }
 });
 
-// ✨ NOVO: Endpoint para mover passos (CORRIGIDO)
 app.post('/api/funnels/:funnelId/move-step', (req, res) => {
     try {
         const { funnelId } = req.params;
         const { fromIndex, direction } = req.body;
         
-        // Validar entrada
         if (fromIndex === undefined || fromIndex === null || !direction) {
             return res.status(400).json({ 
                 success: false, 
@@ -1359,7 +1579,6 @@ app.post('/api/funnels/:funnelId/move-step', (req, res) => {
             });
         }
         
-        // Buscar funil
         const funnel = funis.get(funnelId);
         if (!funnel) {
             return res.status(404).json({ 
@@ -1368,7 +1587,6 @@ app.post('/api/funnels/:funnelId/move-step', (req, res) => {
             });
         }
         
-        // Garantir que steps existe e é array válido
         if (!funnel.steps || !Array.isArray(funnel.steps) || funnel.steps.length === 0) {
             return res.status(400).json({ 
                 success: false, 
@@ -1376,10 +1594,8 @@ app.post('/api/funnels/:funnelId/move-step', (req, res) => {
             });
         }
         
-        // Converter fromIndex para número
         const from = parseInt(fromIndex);
         
-        // Validar índice
         if (isNaN(from) || from < 0 || from >= funnel.steps.length) {
             return res.status(400).json({ 
                 success: false, 
@@ -1387,10 +1603,8 @@ app.post('/api/funnels/:funnelId/move-step', (req, res) => {
             });
         }
         
-        // Calcular índice de destino
         const toIndex = direction === 'up' ? from - 1 : from + 1;
         
-        // Validar movimento
         if (toIndex < 0 || toIndex >= funnel.steps.length) {
             return res.status(400).json({ 
                 success: false, 
@@ -1398,10 +1612,8 @@ app.post('/api/funnels/:funnelId/move-step', (req, res) => {
             });
         }
         
-        // Fazer cópia profunda do funil para evitar problemas
         const updatedFunnel = JSON.parse(JSON.stringify(funnel));
         
-        // Verificar se os passos existem
         if (!updatedFunnel.steps[from] || !updatedFunnel.steps[toIndex]) {
             return res.status(400).json({ 
                 success: false, 
@@ -1409,22 +1621,18 @@ app.post('/api/funnels/:funnelId/move-step', (req, res) => {
             });
         }
         
-        // Trocar posições
         const temp = updatedFunnel.steps[from];
         updatedFunnel.steps[from] = updatedFunnel.steps[toIndex];
         updatedFunnel.steps[toIndex] = temp;
         
-        // Garantir IDs únicos para cada passo
         updatedFunnel.steps.forEach((step, idx) => {
             if (step && !step.id) {
                 step.id = 'step_' + Date.now() + '_' + idx;
             }
         });
         
-        // Salvar funil atualizado
         funis.set(funnelId, updatedFunnel);
         
-        // Salvar em arquivo
         saveFunnelsToFile();
         
         addLog('STEP_MOVED', `Passo ${from} movido para ${toIndex}`, { 
@@ -1433,7 +1641,6 @@ app.post('/api/funnels/:funnelId/move-step', (req, res) => {
             totalSteps: updatedFunnel.steps.length 
         });
         
-        // Retornar funil completo atualizado
         res.json({ 
             success: true, 
             message: `Passo movido de ${from} para ${toIndex}`,
@@ -1457,7 +1664,7 @@ app.get('/api/funnels/export', (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(JSON.stringify({
-            version: '4.0',
+            version: '4.4',
             exportDate: new Date().toISOString(),
             totalFunnels: funnelsArray.length,
             funnels: funnelsArray
@@ -1547,7 +1754,8 @@ app.get('/api/debug/evolution', async (req, res) => {
     const debugInfo = {
         evolution_base_url: EVOLUTION_BASE_URL,
         evolution_api_key_configured: EVOLUTION_API_KEY !== 'SUA_API_KEY_AQUI',
-        instances_configured: INSTANCES,
+        evolution_api_key_length: EVOLUTION_API_KEY.length,
+        instances: INSTANCES,
         active_conversations: conversations.size,
         sticky_instances_count: stickyInstances.size,
         pix_timeouts_active: pixTimeouts.size,
@@ -1605,12 +1813,260 @@ app.get('/api/debug/evolution', async (req, res) => {
     res.json(debugInfo);
 });
 
+// ✅ ============ ENDPOINTS DE DEBUG V4.4 ============
+
+app.get('/api/debug/conversation/:phoneKey', (req, res) => {
+    const { phoneKey } = req.params;
+    
+    const conversation = conversations.get(phoneKey);
+    
+    if (!conversation) {
+        return res.json({
+            success: false,
+            message: 'Conversa não encontrada',
+            phoneKey,
+            totalConversations: conversations.size,
+            allPhoneKeys: Array.from(conversations.keys())
+        });
+    }
+    
+    const funnel = funis.get(conversation.funnelId);
+    const currentStep = funnel?.steps[conversation.stepIndex];
+    
+    res.json({
+        success: true,
+        conversation: {
+            phoneKey,
+            remoteJid: conversation.remoteJid,
+            customerName: conversation.customerName,
+            productType: conversation.productType,
+            funnelId: conversation.funnelId,
+            stepIndex: conversation.stepIndex,
+            totalSteps: funnel?.steps.length || 0,
+            currentStepType: currentStep?.type,
+            currentStepWaitsReply: currentStep?.waitForReply,
+            waiting_for_response: conversation.waiting_for_response,
+            pixWaiting: conversation.pixWaiting,
+            canceled: conversation.canceled,
+            completed: conversation.completed,
+            hasError: conversation.hasError,
+            errorMessage: conversation.errorMessage,
+            createdAt: conversation.createdAt,
+            lastSystemMessage: conversation.lastSystemMessage,
+            lastReply: conversation.lastReply,
+            lastReplyText: conversation.lastReplyText,
+            stickyInstance: stickyInstances.get(phoneKey),
+            hasPixTimeout: pixTimeouts.has(phoneKey),
+            hasWebhookLock: webhookLocks.has(phoneKey)
+        },
+        currentStep: currentStep,
+        funnel: {
+            id: funnel?.id,
+            name: funnel?.name,
+            totalSteps: funnel?.steps.length
+        }
+    });
+});
+
+app.post('/api/debug/simulate-reply', async (req, res) => {
+    const { phoneKey, messageText } = req.body;
+    
+    if (!phoneKey) {
+        return res.status(400).json({
+            success: false,
+            error: 'phoneKey obrigatório'
+        });
+    }
+    
+    const conversation = conversations.get(phoneKey);
+    
+    if (!conversation) {
+        return res.status(404).json({
+            success: false,
+            error: 'Conversa não encontrada',
+            phoneKey
+        });
+    }
+    
+    addLog('DEBUG_SIMULATE_REPLY', `🧪 Simulando resposta`, { 
+        phoneKey, 
+        messageText: messageText?.substring(0, 50) 
+    });
+    
+    try {
+        if (conversation.waiting_for_response) {
+            conversation.waiting_for_response = false;
+            conversation.lastReply = new Date();
+            conversation.lastReplyText = messageText || 'Resposta simulada';
+            conversations.set(phoneKey, conversation);
+            
+            await saveConversationsToFile();
+            await advanceConversation(phoneKey, messageText || 'Resposta simulada', 'reply');
+            
+            res.json({
+                success: true,
+                message: 'Resposta simulada e conversa avançada',
+                phoneKey,
+                newStepIndex: conversations.get(phoneKey)?.stepIndex
+            });
+        } else {
+            res.json({
+                success: false,
+                message: 'Conversa não estava aguardando resposta',
+                phoneKey,
+                waiting_for_response: conversation.waiting_for_response,
+                stepIndex: conversation.stepIndex
+            });
+        }
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+app.post('/api/debug/force-advance', async (req, res) => {
+    const { phoneKey } = req.body;
+    
+    if (!phoneKey) {
+        return res.status(400).json({
+            success: false,
+            error: 'phoneKey obrigatório'
+        });
+    }
+    
+    const conversation = conversations.get(phoneKey);
+    
+    if (!conversation) {
+        return res.status(404).json({
+            success: false,
+            error: 'Conversa não encontrada',
+            phoneKey
+        });
+    }
+    
+    addLog('DEBUG_FORCE_ADVANCE', `🚀 Forçando avanço`, { phoneKey });
+    
+    try {
+        conversation.waiting_for_response = false;
+        conversations.set(phoneKey, conversation);
+        
+        await advanceConversation(phoneKey, null, 'manual-debug');
+        
+        res.json({
+            success: true,
+            message: 'Conversa avançada manualmente',
+            phoneKey,
+            newStepIndex: conversations.get(phoneKey)?.stepIndex
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+app.get('/api/debug/phone-matching/:phone', (req, res) => {
+    const { phone } = req.params;
+    
+    const phoneKey = extractPhoneKey(phone);
+    const remoteJid = phoneToRemoteJid(phone);
+    const conversation = findConversationByPhone(phone);
+    
+    const directMatch = conversations.get(phoneKey);
+    
+    let jidMatch = null;
+    for (const [key, conv] of conversations.entries()) {
+        if (conv.remoteJid === remoteJid) {
+            jidMatch = { phoneKey: key, conversation: conv };
+            break;
+        }
+    }
+    
+    res.json({
+        success: true,
+        input: {
+            phone,
+            phoneKey,
+            phoneKeyLength: phoneKey?.length,
+            remoteJid
+        },
+        matches: {
+            findConversationByPhone: !!conversation,
+            directPhoneKeyMatch: !!directMatch,
+            remoteJidMatch: !!jidMatch
+        },
+        phoneIndex: {
+            size: phoneIndex.size,
+            hasPhone: phoneIndex.has(phone),
+            hasPhoneKey: phoneIndex.has(phoneKey),
+            value: phoneIndex.get(phone) || phoneIndex.get(phoneKey)
+        },
+        allConversations: Array.from(conversations.entries()).map(([key, conv]) => ({
+            phoneKey: key,
+            remoteJid: conv.remoteJid,
+            customerName: conv.customerName
+        }))
+    });
+});
+
+app.post('/api/debug/test-evolution', async (req, res) => {
+    const { phone, message } = req.body;
+    
+    if (!phone) {
+        return res.status(400).json({
+            success: false,
+            error: 'Telefone obrigatório'
+        });
+    }
+    
+    const remoteJid = phoneToRemoteJid(phone);
+    const testMessage = message || 'Teste do sistema Kirvano';
+    
+    addLog('DEBUG_TEST_EVOLUTION', `🧪 Testando Evolution`, { phone, remoteJid });
+    
+    const results = [];
+    
+    for (const instance of INSTANCES.slice(0, 3)) {
+        try {
+            const result = await sendText(remoteJid, testMessage, instance);
+            
+            results.push({
+                instance,
+                success: result.ok,
+                data: result.data,
+                error: result.error
+            });
+            
+            if (result.ok) break;
+        } catch (error) {
+            results.push({
+                instance,
+                success: false,
+                error: error.message
+            });
+        }
+    }
+    
+    res.json({
+        success: results.some(r => r.success),
+        phone,
+        remoteJid,
+        testMessage,
+        results
+    });
+});
+
+// ============ ROTAS FRONTEND ============
+
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.get('/teste.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'teste.html'));
+app.get('/test.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'test.html'));
 });
 
 // ============ INICIALIZAÇÃO ============
@@ -1627,34 +2083,32 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO + PERFECTPAY V4.3 FINAL - CS + FAB');
+    console.log('🚀 KIRVANO + PERFECTPAY V4.4 FINAL - CS + FAB ✨ CORRIGIDO');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
     console.log('Instâncias:', INSTANCES.length, '-', INSTANCES.join(', '));
     console.log('');
-    console.log('✅ RECURSOS IMPLEMENTADOS:');
-    console.log('  1. Suporte a CS e FAB (4 funis)');
-    console.log('  2. Integração KIRVANO + PERFECTPAY ✨');
-    console.log('  3. Webhook PerfectPay com DEBUG completo 🔍');
-    console.log('  4. Sistema de SETAS para mover passos ↕️ ✨');
-    console.log('  5. Áudio PTT Base64 (100% garantido) 🎤');
-    console.log('  6. Delays respeitados corretamente ⏰');
-    console.log('  7. Lock APENAS no webhook (sem deadlock)');
-    console.log('  8. PIX aguarda 7min antes de enviar');
-    console.log('  9. Transferência PIX→APROVADA inteligente');
-    console.log('  10. Sticky instance mantida sempre');
-    console.log('  11. Retry automático 3x por instância');
-    console.log('  12. Fallback em 3 níveis para áudio');
+    console.log('✅ CORREÇÕES V4.4:');
+    console.log('  1. ✨ Webhook aceita resposta SEMPRE (não só com waiting_for_response)');
+    console.log('  2. ✨ Salvamento IMEDIATO após marcar waiting_for_response');
+    console.log('  3. ✨ Múltiplas tentativas de matching de telefone');
+    console.log('  4. ✨ Logs ultra detalhados com ID único por requisição');
+    console.log('  5. ✨ Endpoints de debug para diagnóstico em tempo real');
     console.log('');
     console.log('📡 Endpoints:');
-    console.log('  POST /webhook/kirvano             - Eventos Kirvano');
-    console.log('  POST /webhook/perfectpay          - Eventos PerfectPay ✨');
-    console.log('  POST /webhook/evolution           - Respostas clientes');
-    console.log('  POST /api/funnels/:id/move-step   - Mover passos ↕️ ✨');
-    console.log('  GET  /api/dashboard               - Estatísticas');
-    console.log('  GET  /api/conversations           - Conversas');
-    console.log('  GET  /api/logs                    - Logs');
+    console.log('  POST /webhook/kirvano                    - Eventos Kirvano');
+    console.log('  POST /webhook/perfectpay                 - Eventos PerfectPay');
+    console.log('  POST /webhook/evolution                  - Respostas clientes ✨ CORRIGIDO');
+    console.log('  POST /api/funnels/:id/move-step          - Mover passos ↕️');
+    console.log('  GET  /api/dashboard                      - Estatísticas');
+    console.log('  GET  /api/conversations                  - Conversas');
+    console.log('  GET  /api/logs                           - Logs');
+    console.log('  GET  /api/debug/conversation/:phoneKey   - Debug conversa ✨ NOVO');
+    console.log('  POST /api/debug/simulate-reply           - Simular resposta ✨ NOVO');
+    console.log('  POST /api/debug/force-advance            - Forçar avanço ✨ NOVO');
+    console.log('  GET  /api/debug/phone-matching/:phone    - Testar matching ✨ NOVO');
+    console.log('  POST /api/debug/test-evolution           - Testar Evolution ✨ NOVO');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('='.repeat(70));
