@@ -1372,27 +1372,28 @@ app.post('/webhook/evolution', async (req, res) => {
         });
         
         const incomingPhone = remoteJid.replace('@s.whatsapp.net', '');
-        let phoneKey = extractPhoneKey(incomingPhone);
+        const initialPhoneKey = extractPhoneKey(incomingPhone);
+        let phoneKey = initialPhoneKey;
         
         addLog('WEBHOOK_PHONE_EXTRACTED', `[${debugId}] 📞 Telefone processado`, {
             remoteJid,
             incomingPhone,
-            phoneKey,
-            phoneKeyLength: phoneKey?.length,
-            phoneKeyValid: phoneKey && phoneKey.length === 8
+            phoneKey: initialPhoneKey,
+            phoneKeyLength: initialPhoneKey?.length,
+            phoneKeyValid: initialPhoneKey && initialPhoneKey.length === 8
         });
         
-        if (!phoneKey || phoneKey.length !== 8) {
+        if (!initialPhoneKey || initialPhoneKey.length !== 8) {
             addLog('WEBHOOK_INVALID_PHONE', `[${debugId}] ❌ Telefone inválido`, { 
                 incomingPhone, 
-                phoneKey,
-                phoneKeyLength: phoneKey?.length 
+                phoneKey: initialPhoneKey,
+                phoneKeyLength: initialPhoneKey?.length 
             });
             return res.json({ success: true });
         }
         
         if (fromMe) {
-            addLog('WEBHOOK_FROM_ME', `[${debugId}] 🤖 Mensagem do sistema - ignorando`, { phoneKey });
+            addLog('WEBHOOK_FROM_ME', `[${debugId}] 🤖 Mensagem do sistema - ignorando`, { phoneKey: initialPhoneKey });
             return res.json({ success: true });
         }
         
@@ -1544,8 +1545,10 @@ app.post('/webhook/evolution', async (req, res) => {
             res.json({ success: true, phoneKey, debugId });
             
         } finally {
-            releaseWebhookLock(phoneKey);
-            addLog('WEBHOOK_LOCK_RELEASED', `[${debugId}] 🔓 Lock liberado`, { phoneKey });
+            if (phoneKey) {
+                releaseWebhookLock(phoneKey);
+                addLog('WEBHOOK_LOCK_RELEASED', `[${debugId}] 🔓 Lock liberado`, { phoneKey });
+            }
         }
         
     } catch (error) {
@@ -2182,13 +2185,14 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO + PERFECTPAY V4.5 DEFINITIVO - CS + FAB ✨✨✨');
+    console.log('🚀 KIRVANO + PERFECTPAY V4.5.1 STABLE - CS + FAB ✨✨✨');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
     console.log('Instâncias:', INSTANCES.length, '-', INSTANCES.join(', '));
     console.log('');
-    console.log('✅ CORREÇÕES V4.5 - MATCHING 100% ROBUSTO:');
+    console.log('✅ CORREÇÕES V4.5.1 - BUG CRÍTICO CORRIGIDO:');
+    console.log('  🐛 FIX: Corrigido crash "phoneKey is not defined"');
     console.log('  1. ✨ Busca em 4 NÍVEIS (phoneKey, phoneIndex, remoteJid, partial)');
     console.log('  2. ✨ Registra telefone em 15+ VARIAÇÕES diferentes');
     console.log('  3. ✨ Match por últimos 8 dígitos (fallback inteligente)');
