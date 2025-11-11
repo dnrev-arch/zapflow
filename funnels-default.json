@@ -1,0 +1,397 @@
+[
+  {
+    "id": "CS_APROVADA",
+    "name": "CS - Compra Aprovada",
+    "steps": [
+      {
+        "id": "step_1",
+        "type": "audio",
+        "text": "",
+        "mediaUrl": "https://xconteudos.com/wp-content/uploads/2025/10/1760064923462120438-321585629761702-1.mp3",
+        "waitForReply": true
+      },
+      {
+        "id": "step_2",
+        "type": "text",
+        "text": "Posso te colocar no Grupo e mandar o seu acesso VIP por aqui mesmo amor? 😍",
+        "mediaUrl": "",
+        "waitForReply": true,
+        "showTyping": true,
+        "delayBefore": "18"
+      },
+      {
+        "id": "step_3",
+        "type": "video+text",
+        "text": "Seu ACESSO VIP está pronto! 😍\n\nPra acessar é bem simples, Clique no link abaixo 👇🏻\n\nhttps://acesso.vipmembros.com/\n\nE entre usando seu e-mail de compra.\n\nLá dentro você vai encontrar o acesso ao Grupo, fotos, vídeos e todo o conteúdo exclusivo só pros VIPs liberados pra você! 🔥\n\nCorre lá, que as mulheres do grupo estão te esperando... ❤️\n",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/08/WhatsApp-Video-2025-08-21-at-12.27.34-2.mp4",
+        "waitForReply": false,
+        "showTyping": true,
+        "delayBefore": "21"
+      },
+      {
+        "id": "step_4",
+        "type": "delay",
+        "text": "",
+        "mediaUrl": "",
+        "waitForReply": false,
+        "delaySeconds": "780"
+      },
+      {
+        "id": "step_5",
+        "type": "text",
+        "text": "Conseguiu amor? ❤️\n",
+        "mediaUrl": "",
+        "waitForReply": true
+      },
+      {
+        "id": "step_6",
+        "type": "text",
+        "text": "Se não tiver entrado no grupinho grátis, clica aqui que a Marina te coloca agora la dentro 👇🏻\n\nhttps://t.me/Marina_Talbot\n",
+        "mediaUrl": "",
+        "waitForReply": false,
+        "showTyping": true,
+        "delayBefore": "19"
+      }
+    ],
+    "isDefault": true,
+    "stepCount": 6
+  },
+  {
+    "id": "CS_PIX",
+    "name": "CS - PIX Pendente",
+    "steps": [
+      {
+        "id": "step_1",
+        "type": "audio",
+        "text": "",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/10/1760471702347619808-323251706671257.ogg",
+        "waitForReply": true
+      },
+      {
+        "id": "step_14",
+        "type": "text",
+        "text": "Qual seu nome amor, pra eu salvar aqui seu contato? ☺️",
+        "mediaUrl": "",
+        "waitForReply": true,
+        "delayBefore": "12",
+        "showTyping": true
+      },
+      {
+        "id": "step_16",
+        "type": "audio",
+        "text": "",
+        "mediaUrl": "https://xconteudos.com/wp-content/uploads/2025/10/Design-sem-nome-_26_-Copia.mp3",
+        "waitForReply": true,
+        "showTyping": true,
+        "delayBefore": "12"
+      },
+      {
+        "id": "step_17",
+        "type": "text",
+        "text": "Ahh... pq não apareceu sua foto ainda 🥺🥺 Salvou como ein??! quero Printttt 🤭🤭",
+        "mediaUrl": "",
+        "waitForReply": false,
+        "showTyping": true,
+        "delayBefore": "10"
+      },
+      {
+        "id": "step_18",
+        "type": "audio",
+        "text": "",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/10/1759970200191377631-321197639127111.mp3",
+        "waitForReply": true,
+        "showTyping": true,
+        "delayBefore": "11"
+      },
+      {
+        "id": "step_19",
+        "type": "text",
+        "text": "Hahaha, brincadeira viu lindo? salva como você quiser ☺️❤️",
+        "mediaUrl": "",
+        "waitForReply": true,
+        "delayBefore": "11",
+        "showTyping": true
+      },
+      {
+        "id": "step_2",
+        "type": "text",
+        "text": "Então amor, posso te colocar no Grupinho agora? 😏",
+        "mediaUrl": "",
+        "waitForReply": true,
+        "showTyping": true,
+        "delayBefore": "13"
+      },
+      {
+        "id": "step_1761277273483",
+        "type": "audio",
+        "text": "",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/10/1761256521507017764-326465863127159.mp3",
+        "delaySeconds": null,
+        "typingSeconds": null,
+        "delayBefore": "19",
+        "showTyping": true,
+        "waitForReply": false
+      },
+      {
+        "id": "step_1761278116864",
+        "type": "audio",
+        "text": "",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/10/1761256844773905959-326467554812054.mp3",
+        "delaySeconds": null,
+        "typingSeconds": null,
+        "delayBefore": 9,
+        "showTyping": true,
+        "waitForReply": false
+      },
+      {
+        "id": "step_1761278318050",
+        "type": "text",
+        "text": "vou te mandar o link aqui 👇🏼👇🏼\n\nhttps://e-volutionn.com/grupinho1/",
+        "mediaUrl": "",
+        "delaySeconds": null,
+        "typingSeconds": null,
+        "delayBefore": 10,
+        "showTyping": true,
+        "waitForReply": false
+      },
+      {
+        "id": "step_1761278366190",
+        "type": "audio",
+        "text": "",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/10/1761257218734022863-326469100884129.mp3",
+        "delaySeconds": null,
+        "typingSeconds": null,
+        "delayBefore": 0,
+        "showTyping": false,
+        "waitForReply": false
+      },
+      {
+        "id": "step_1761278456686",
+        "type": "delay",
+        "text": "",
+        "mediaUrl": "",
+        "delaySeconds": 120,
+        "typingSeconds": null,
+        "delayBefore": 0,
+        "showTyping": false,
+        "waitForReply": false
+      },
+      {
+        "id": "step_3",
+        "type": "image+text",
+        "text": "As meninas já estão te esperando 🤭🤭🤭",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/09/Design-sem-nome-9.png",
+        "waitForReply": true,
+        "showTyping": true,
+        "delayBefore": "18"
+      },
+      {
+        "id": "step_4",
+        "type": "delay",
+        "text": "",
+        "mediaUrl": "",
+        "waitForReply": false,
+        "delaySeconds": "590"
+      },
+      {
+        "id": "step_5",
+        "type": "image+text",
+        "text": "\nAmor vi que ainda não pagou o valor..\n\nMas como as meninas do grupo gostaram de você vamos te liberar acesso ao nosso APLICATIVO VIP E A UM GRUPINHO GRÁTIS\n\nSó clicar no link abaixo e entrar 👇🏻\n\nhttps://acesso.vipmembros.com/\n\nSe depois quiser entrar no GRUPINHO VIP DAS CASADAS é só me chamar  😘\n",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/09/IMG_8451.jpg",
+        "waitForReply": true
+      },
+      {
+        "id": "step_6",
+        "type": "delay",
+        "text": "",
+        "mediaUrl": "",
+        "waitForReply": false,
+        "delaySeconds": "450"
+      },
+      {
+        "id": "step_7",
+        "type": "text",
+        "text": "Conseguiu amor? 🥰\n",
+        "mediaUrl": "",
+        "waitForReply": true
+      },
+      {
+        "id": "step_8",
+        "type": "text",
+        "text": "Se não tiver entrado no grupinho grátis, clica aqui que a Marina te coloca agora la dentro 👇🏻\n\nhttps://t.me/Marina_Talbot\n",
+        "mediaUrl": "",
+        "waitForReply": false,
+        "delayBefore": "18",
+        "showTyping": true
+      }
+    ],
+    "isDefault": true,
+    "stepCount": 18
+  },
+  {
+    "id": "FAB_APROVADA",
+    "name": "FAB - Compra Aprovada",
+    "steps": [
+      {
+        "id": "step_1",
+        "type": "audio",
+        "text": "",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/10/Design-sem-nome-_26_.mp3",
+        "waitForReply": true
+      },
+      {
+        "id": "step_2",
+        "type": "text",
+        "text": "Posso te enviar o contato da Fabiane? 😍\n",
+        "mediaUrl": "",
+        "waitForReply": true,
+        "showTyping": true,
+        "delayBefore": "20"
+      },
+      {
+        "id": "step_3",
+        "type": "video+text",
+        "text": "Seu ACESSO VIP está pronto! 😍 Pra acessar é bem simples, Clique no link abaixo 👇🏻\n\nhttps://acesso.vipmembros.com/\n\nE entre usando seu e-mail de compra.\n\nLá dentro você vai encontrar o contato dela, fotos, vídeos e todo o conteúdo exclusivo só pros VIPs liberados pra você! 🔥\n\nCorre lá, porque ela tá te esperando ❤️\n",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/08/WhatsApp-Video-2025-08-21-at-12.27.34-3.mp4",
+        "waitForReply": false,
+        "showTyping": true,
+        "delayBefore": "27"
+      },
+      {
+        "id": "step_4",
+        "type": "delay",
+        "text": "",
+        "mediaUrl": "",
+        "waitForReply": false,
+        "delaySeconds": "600"
+      },
+      {
+        "id": "step_5",
+        "type": "text",
+        "text": "Conseguiu amor? 🥰\n",
+        "mediaUrl": "",
+        "waitForReply": true
+      },
+      {
+        "id": "step_6",
+        "type": "text",
+        "text": "Se não tiver conseguido, aqui o zap da Fabi: 11 94363-2174\n",
+        "mediaUrl": "",
+        "waitForReply": false,
+        "showTyping": true,
+        "delayBefore": "17"
+      },
+      {
+        "id": "step_7",
+        "type": "delay",
+        "text": "",
+        "mediaUrl": "",
+        "waitForReply": false,
+        "delaySeconds": "290"
+      },
+      {
+        "id": "step_8",
+        "type": "image+text",
+        "text": "Ah amor? Deixa eu te falar... kkk As meninas do nosso Grupinho das Casadas ficaram doidas quando souberam que você entrou 😏 Já sabe né? quando é carne nova...ficam assim... ouriçadas hahaha Fui falar de você, olha como ficaram... Você quer entrar no grupinho também?\n",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/09/Design-sem-nome-9.png",
+        "waitForReply": true
+      },
+      {
+        "id": "step_9",
+        "type": "text",
+        "text": "Se quiser entrar pra conhecer as meninas é so clicar no link 👇🏻\n\nhttps://app.vipchats.com.br/of-cs\n",
+        "mediaUrl": "",
+        "waitForReply": false
+      },
+      {
+        "id": "step_10",
+        "type": "delay",
+        "text": "",
+        "mediaUrl": "",
+        "waitForReply": false,
+        "delaySeconds": "950"
+      },
+      {
+        "id": "step_11",
+        "type": "image+text",
+        "text": "Amor, o que achou de mim? 🙈😍  Não posso falar muito aqui nesse Zap… ele é só do suporte… Mas se você quiser me conhecer melhor… podemos até fazer uma Chamadinha de vídeo 🔥 \n\nSe gostou de mim, me chama lá no meu Zap particular 👇🏻 \n\nhttps://app.vipchats.com.br/gaby\n\nE quem sabe a gente não se diverte juntinhos😈💋\n",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/08/WhatsApp-Image-2025-06-22-at-19.14.28.jpeg",
+        "waitForReply": false
+      }
+    ],
+    "isDefault": true,
+    "stepCount": 11
+  },
+  {
+    "id": "FAB_PIX",
+    "name": "FAB - PIX Pendente",
+    "steps": [
+      {
+        "id": "step_1",
+        "type": "audio",
+        "text": "",
+        "mediaUrl": "https://hotmoney.space/wp-content/uploads/2025/10/1760070558163768420-321608735174786.mp3",
+        "waitForReply": true
+      },
+      {
+        "id": "step_2",
+        "type": "text",
+        "text": "Posso te passar o número do Zap dela por aqui mesmo??",
+        "mediaUrl": "",
+        "waitForReply": true,
+        "showTyping": true,
+        "delayBefore": "16"
+      },
+      {
+        "id": "step_3",
+        "type": "image+text",
+        "text": "Eita amor... Acabei de ver no sistema que você gerou o Pix mas ainda não pagou… Por isso não posso te enviar o contato dela ainda... Vou te envir o Link para você finalizar o pagamento e continuar falando com ela 👇🏻\n\nhttps://pay.kirvano.com/668a73bc-2fca-4f12-9331-ef945181cd5c\n",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/06/WhatsApp-Image-2025-06-09-at-17.57.36.jpeg",
+        "waitForReply": false,
+        "showTyping": true,
+        "delayBefore": "24"
+      },
+      {
+        "id": "step_4",
+        "type": "text",
+        "text": "Assim que finalizar só me enviar comprovante que te mando o contato dela + seu acesso ao APP 😘\n",
+        "mediaUrl": "",
+        "waitForReply": false,
+        "showTyping": true,
+        "delayBefore": "11"
+      },
+      {
+        "id": "step_5",
+        "type": "delay",
+        "text": "",
+        "mediaUrl": "",
+        "waitForReply": false,
+        "delaySeconds": "600"
+      },
+      {
+        "id": "step_6",
+        "type": "image+text",
+        "text": "Amor vi que ainda não pagou o valor... Mas como a Fabi quer muito falar com você e ela pagou pra você! Posso te mandar?\n",
+        "mediaUrl": "https://e-volutionn.com/wp-content/uploads/2025/09/IMG_8451.jpg",
+        "waitForReply": true
+      },
+      {
+        "id": "step_7",
+        "type": "delay",
+        "text": "",
+        "mediaUrl": "",
+        "waitForReply": false,
+        "delaySeconds": "300"
+      },
+      {
+        "id": "step_8",
+        "type": "text",
+        "text": "Ela fez o pagamento de R$ 15 pra você. daí ficou faltando R$ 9 reais pra você ter acesso a tudo... aí la no zap dela se você quiser vcs acertam tudo, não sei o que vocês conversaram... mas enfim. se você quiser ser VIP e ter o zap dela com tudo além do grupinho, vou te mandar o link do restante, que seria os R$ 9 reais ok?\n\nCaso queira, faz o pagamento e me manda o comprovante aqui dos R$ 9 q eu te passo o zap dela 👇🏻👇🏻👇🏻\n\nhttps://pay.kirvano.com/a838d1ca-c9ab-43b4-8e27-7e1bbb606b10\n",
+        "mediaUrl": "",
+        "waitForReply": false
+      }
+    ],
+    "isDefault": true,
+    "stepCount": 8
+  }
+]
