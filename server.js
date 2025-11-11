@@ -66,7 +66,7 @@ function getStatusDescription(statusEnum) {
 }
 
 // Instâncias Evolution
-const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'D11', 'D13'];
+const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'D11', 'D12'];
 
 // ============ ARMAZENAMENTO EM MEMÓRIA ============
 let conversations = new Map();
@@ -769,6 +769,7 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
     };
     
     conversations.set(phoneKey, conversation);
+    await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
     addLog('PIX_WAITING_CREATED', `PIX em espera para ${phoneKey}`, { orderCode, productType });
     
     const timeout = setTimeout(async () => {
@@ -779,6 +780,7 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
             conv.pixWaiting = false;
             conv.stepIndex = 0;
             conversations.set(phoneKey, conv);
+            await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
             
             await sendStep(phoneKey);
         }
@@ -834,6 +836,7 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
     };
     
     conversations.set(phoneKey, approvedConv);
+    await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
     addLog('TRANSFER_PIX_TO_APPROVED', `Transferido para APROVADA`, { phoneKey, startingStep, productType });
     
     await sendStep(phoneKey);
@@ -858,6 +861,7 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
     };
     
     conversations.set(phoneKey, conversation);
+    await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
     addLog('FUNNEL_START', `Iniciando ${funnelId} para ${phoneKey}`, { orderCode });
     await sendStep(phoneKey);
 }
@@ -1002,6 +1006,7 @@ async function advanceConversation(phoneKey, replyText, reason) {
         conversation.completed = true;
         conversation.completedAt = new Date();
         conversations.set(phoneKey, conversation);
+        await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
         return;
     }
     
@@ -1013,6 +1018,7 @@ async function advanceConversation(phoneKey, replyText, reason) {
     }
     
     conversations.set(phoneKey, conversation);
+    await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
     addLog('STEP_ADVANCE', `Avançando para passo ${nextStepIndex}`, { phoneKey, reason });
     
     await sendStep(phoneKey);
@@ -2204,23 +2210,25 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO + PERFECTPAY V4.6 PERSISTENTE - CS + FAB ✨✨✨');
+    console.log('🚀 KIRVANO + PERFECTPAY V4.6.1 SALVAMENTO IMEDIATO ✨✨✨');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
     console.log('Instâncias:', INSTANCES.length, '-', INSTANCES.join(', '));
     console.log('');
-    console.log('✅ CORREÇÕES V4.6 - FUNIS PERSISTENTES:');
-    console.log('  💾 NEW: Funis carregam automaticamente do arquivo padrão');
-    console.log('  💾 NEW: Volume /data persiste entre deploys');
-    console.log('  💾 NEW: Edições do painel são mantidas');
+    console.log('✅ CORREÇÕES V4.6.1 - NUNCA MAIS PERDE CONVERSAS:');
+    console.log('  💾 NEW: Salvamento IMEDIATO ao criar conversa');
+    console.log('  💾 NEW: Salvamento IMEDIATO ao receber resposta');
+    console.log('  💾 NEW: Salvamento IMEDIATO ao avançar passo');
+    console.log('  💾 NEW: Salvamento IMEDIATO ao aprovar venda');
+    console.log('  💾 Funis carregam automaticamente do arquivo padrão');
+    console.log('  💾 Volume /data persiste entre deploys');
     console.log('  🐛 FIX: Corrigido crash "phoneKey is not defined"');
     console.log('  1. ✨ Busca em 4 NÍVEIS (phoneKey, phoneIndex, remoteJid, partial)');
     console.log('  2. ✨ Registra telefone em 15+ VARIAÇÕES diferentes');
     console.log('  3. ✨ Match por últimos 8 dígitos (fallback inteligente)');
     console.log('  4. ✨ Webhook aceita resposta SEMPRE (não depende de timing)');
-    console.log('  5. ✨ Salvamento IMEDIATO após marcar waiting_for_response');
-    console.log('  6. ✨ Logs ultra detalhados de cada tentativa de match');
+    console.log('  5. ✨ Logs ultra detalhados de cada tentativa de match');
     console.log('');
     console.log('📡 Endpoints:');
     console.log('  POST /webhook/kirvano                    - Eventos Kirvano');
