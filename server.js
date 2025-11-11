@@ -1358,7 +1358,14 @@ app.post('/webhook/perfectpay', async (req, res) => {
 });
 
 // ✅ ============ WEBHOOK EVOLUTION CORRIGIDO V4.4 ============
-
+app.post('/webhook/evolution', async (req, res) => {
+    const debugId = Date.now();
+    
+    try {
+        addLog('WEBHOOK_RECEIVED', `[${debugId}] 📥 Webhook recebido`, {
+            bodySize: JSON.stringify(req.body).length,
+            timestamp: new Date().toISOString()
+        });
         
         const data = req.body;
         const messageData = data.data;
@@ -2241,36 +2248,4 @@ app.listen(PORT, async () => {
     console.log('='.repeat(70));
     
     await initializeData();
-});
-
-
-app.post('/webhook/evolution', (req, res) => {
-  const data = req.body;
-  console.log('[WEBHOOK_RECEIVED]', data);
-
-  const remoteJid = data?.key?.remoteJid;
-  const phoneKey = remoteJid?.replace('@s.whatsapp.net', '').slice(-8);
-
-  if (!remoteJid || !phoneKey) {
-    return res.status(400).send('Dados insuficientes.');
-  }
-
-  const conv = [...conversations.values()].find(c =>
-    c.phoneKey === phoneKey ||
-    c.remoteJid === remoteJid ||
-    (c.phone && c.phone.endsWith(phoneKey))
-  );
-
-  if (!conv) {
-    console.log('⚠️ Nenhuma conversa encontrada para resposta recebida');
-    return res.status(200).send('Webhook recebido, sem conversa correspondente.');
-  }
-
-  conv.lastReply = Date.now();
-  conv.waiting_for_response = false;
-  conv.stepIndex = (conv.stepIndex ?? 0) + 1;
-
-  conversations.set(conv.phoneKey, conv);
-  console.log('✅ Conversa atualizada. Avançando para etapa', conv.stepIndex);
-  return res.send('Avançado com sucesso');
 });
