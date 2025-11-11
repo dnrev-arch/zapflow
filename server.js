@@ -66,7 +66,7 @@ function getStatusDescription(statusEnum) {
 }
 
 // Instâncias Evolution
-const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'D11', 'D13'];
+const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'D11', 'D12'];
 
 // ============ ARMAZENAMENTO EM MEMÓRIA ============
 let conversations = new Map();
@@ -750,6 +750,12 @@ async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFir
 // ============ ORQUESTRAÇÃO ============
 
 async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, amount) {
+    addLog('CREATE_PIX_START', '🔴 INICIANDO criação PIX', { 
+        phoneKey, 
+        orderCode,
+        conversationsBefore: conversations.size 
+    });
+    
     const conversation = {
         phoneKey,
         remoteJid,
@@ -768,12 +774,42 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
         completed: false
     };
     
+    addLog('CREATE_PIX_BEFORE_SET', '🟡 ANTES de conversations.set', { 
+        phoneKey,
+        conversationsSize: conversations.size,
+        conversationData: JSON.stringify(conversation)
+    });
+    
     conversations.set(phoneKey, conversation);
+    
+    addLog('CREATE_PIX_AFTER_SET', '🟢 DEPOIS de conversations.set', { 
+        phoneKey,
+        conversationsSize: conversations.size,
+        conversationExists: conversations.has(phoneKey),
+        conversationData: conversations.get(phoneKey) ? 'EXISTS' : 'NOT FOUND'
+    });
+    
     await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
+    
+    addLog('CREATE_PIX_AFTER_SAVE', '💾 DEPOIS de salvar', { 
+        phoneKey,
+        conversationsSize: conversations.size
+    });
+    
     addLog('PIX_WAITING_CREATED', `PIX em espera para ${phoneKey}`, { orderCode, productType });
     
     const timeout = setTimeout(async () => {
+        addLog('PIX_TIMEOUT_START', '⏰ Timeout PIX DISPARANDO', { phoneKey, orderCode });
+        
         const conv = conversations.get(phoneKey);
+        
+        addLog('PIX_TIMEOUT_CHECK', '🔍 Verificando conversa no timeout', {
+            phoneKey,
+            conversationExists: !!conv,
+            conversationsSize: conversations.size,
+            conversationData: conv ? JSON.stringify(conv) : 'NOT FOUND'
+        });
+        
         if (conv && conv.orderCode === orderCode && !conv.canceled && conv.pixWaiting) {
             addLog('PIX_TIMEOUT_TRIGGERED', `Timeout PIX disparado para ${phoneKey}`, { orderCode });
             
@@ -782,12 +818,34 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
             conversations.set(phoneKey, conv);
             await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
             
+            addLog('PIX_TIMEOUT_BEFORE_SENDSTEP', '📤 Antes de sendStep', {
+                phoneKey,
+                stepIndex: conv.stepIndex,
+                funnelId: conv.funnelId
+            });
+            
             await sendStep(phoneKey);
+            
+            addLog('PIX_TIMEOUT_AFTER_SENDSTEP', '✅ Depois de sendStep', { phoneKey });
+        } else {
+            addLog('PIX_TIMEOUT_SKIP', '⏭️ Timeout ignorado', {
+                phoneKey,
+                hasConv: !!conv,
+                orderMatch: conv?.orderCode === orderCode,
+                notCanceled: !conv?.canceled,
+                pixWaiting: conv?.pixWaiting
+            });
         }
         pixTimeouts.delete(phoneKey);
     }, PIX_TIMEOUT);
     
     pixTimeouts.set(phoneKey, { timeout, orderCode, createdAt: new Date() });
+    
+    addLog('CREATE_PIX_COMPLETE', '✅ CRIAÇÃO PIX COMPLETA', {
+        phoneKey,
+        conversationsSize: conversations.size,
+        pixTimeoutsSize: pixTimeouts.size
+    });
 }
 
 async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerName, productType, amount) {
@@ -2212,6 +2270,48 @@ async function initializeData() {
     console.log('💬 Conversas:', conversations.size);
 }
 
+// 🔍 DIAGNÓSTICO DO MAP
+app.get('/api/debug/map-status', (req, res) => {
+    const conversationsArray = Array.from(conversations.entries());
+    const phoneIndexArray = Array.from(phoneIndex.entries());
+    const pixTimeoutsArray = Array.from(pixTimeouts.entries());
+    
+    res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        maps: {
+            conversations: {
+                size: conversations.size,
+                keys: Array.from(conversations.keys()),
+                entries: conversationsArray.map(([key, value]) => ({
+                    key,
+                    phoneKey: value.phoneKey,
+                    funnelId: value.funnelId,
+                    stepIndex: value.stepIndex,
+                    pixWaiting: value.pixWaiting,
+                    waiting_for_response: value.waiting_for_response
+                }))
+            },
+            phoneIndex: {
+                size: phoneIndex.size,
+                entries: phoneIndexArray
+            },
+            pixTimeouts: {
+                size: pixTimeouts.size,
+                entries: pixTimeoutsArray.map(([key, value]) => ({
+                    key,
+                    orderCode: value.orderCode,
+                    createdAt: value.createdAt
+                }))
+            }
+        },
+        systemInfo: {
+            uptime: process.uptime(),
+            memoryUsage: process.memoryUsage()
+        }
+    });
+});
+
 // 🔍 DIAGNÓSTICO COMPLETO
 app.get('/api/diagnostico', (req, res) => {
     const conversationsArray = Array.from(conversations.entries()).map(([key, conv]) => ({
@@ -2257,6 +2357,50 @@ app.get('/api/diagnostico', (req, res) => {
         },
         lastLogs: logs.slice(-10)
     });
+});
+
+// 🧪 TESTE DIRETO - Criar conversa CS PIX
+app.post('/api/test/cs-pix', async (req, res) => {
+    try {
+        const testPhone = '5511972322430';
+        const phoneKey = extractPhoneKey(testPhone);
+        const remoteJid = phoneToRemoteJid(testPhone);
+        const orderCode = 'TEST_' + Date.now();
+        
+        addLog('TEST_CS_PIX', '🧪 Criando teste CS PIX', { phoneKey, orderCode });
+        
+        // Registrar telefone
+        registerPhone(testPhone, phoneKey);
+        
+        // Criar conversa PIX
+        await createPixWaitingConversation(
+            phoneKey,
+            remoteJid,
+            orderCode,
+            'Cliente Teste',
+            'CS',
+            'R$ 197,00'
+        );
+        
+        addLog('TEST_CS_PIX_CREATED', '✅ Teste criado com sucesso', { phoneKey });
+        
+        res.json({
+            success: true,
+            message: 'Conversa teste criada',
+            phoneKey,
+            phone: testPhone,
+            orderCode,
+            remoteJid,
+            info: 'Aguarde 7 minutos ou envie uma mensagem do WhatsApp'
+        });
+        
+    } catch (error) {
+        addLog('TEST_ERROR', '❌ Erro no teste', { error: error.message });
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
 });
 
 // 🧪 TESTE DIRETO - ENVIAR MENSAGEM AGORA
@@ -2310,39 +2454,25 @@ app.post('/api/teste-envio', async (req, res) => {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO + PERFECTPAY V4.6.1 SALVAMENTO IMEDIATO ✨✨✨');
+    console.log('🚀 KIRVANO + PERFECTPAY V4.6.3 LOGS EXTREMOS 🔍🔍🔍');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
     console.log('Instâncias:', INSTANCES.length, '-', INSTANCES.join(', '));
     console.log('');
-    console.log('✅ CORREÇÕES V4.6.1 - NUNCA MAIS PERDE CONVERSAS:');
-    console.log('  💾 NEW: Salvamento IMEDIATO ao criar conversa');
-    console.log('  💾 NEW: Salvamento IMEDIATO ao receber resposta');
-    console.log('  💾 NEW: Salvamento IMEDIATO ao avançar passo');
-    console.log('  💾 NEW: Salvamento IMEDIATO ao aprovar venda');
-    console.log('  💾 Funis carregam automaticamente do arquivo padrão');
-    console.log('  💾 Volume /data persiste entre deploys');
-    console.log('  🐛 FIX: Corrigido crash "phoneKey is not defined"');
-    console.log('  1. ✨ Busca em 4 NÍVEIS (phoneKey, phoneIndex, remoteJid, partial)');
-    console.log('  2. ✨ Registra telefone em 15+ VARIAÇÕES diferentes');
-    console.log('  3. ✨ Match por últimos 8 dígitos (fallback inteligente)');
-    console.log('  4. ✨ Webhook aceita resposta SEMPRE (não depende de timing)');
-    console.log('  5. ✨ Logs ultra detalhados de cada tentativa de match');
+    console.log('✅ V4.6.3 - DEBUG EXTREMO:');
+    console.log('  🔍 NEW: Logs em CADA etapa de criação de conversa');
+    console.log('  🔍 NEW: Rastreamento completo do Map');
+    console.log('  🔍 NEW: Endpoint /api/debug/map-status');
+    console.log('  💾 Salvamento IMEDIATO em todos os pontos');
+    console.log('  💾 Funis carregam automaticamente');
+    console.log('  💾 Volume /data persiste');
     console.log('');
-    console.log('📡 Endpoints:');
-    console.log('  POST /webhook/kirvano                    - Eventos Kirvano');
-    console.log('  POST /webhook/perfectpay                 - Eventos PerfectPay');
-    console.log('  POST /webhook/evolution                  - Respostas clientes ✨ CORRIGIDO');
-    console.log('  POST /api/funnels/:id/move-step          - Mover passos ↕️');
-    console.log('  GET  /api/dashboard                      - Estatísticas');
-    console.log('  GET  /api/conversations                  - Conversas');
-    console.log('  GET  /api/logs                           - Logs');
-    console.log('  GET  /api/debug/conversation/:phoneKey   - Debug conversa ✨ NOVO');
-    console.log('  POST /api/debug/simulate-reply           - Simular resposta ✨ NOVO');
-    console.log('  POST /api/debug/force-advance            - Forçar avanço ✨ NOVO');
-    console.log('  GET  /api/debug/phone-matching/:phone    - Testar matching ✨ NOVO');
-    console.log('  POST /api/debug/test-evolution           - Testar Evolution ✨ NOVO');
+    console.log('📡 Endpoints de Debug:');
+    console.log('  GET  /api/debug/map-status              - Estado do Map ✨ NOVO');
+    console.log('  POST /api/test/cs-pix                   - Criar teste');
+    console.log('  GET  /api/conversations                 - Ver conversas');
+    console.log('  GET  /api/logs?limit=100                - Ver logs');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('='.repeat(70));
