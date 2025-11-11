@@ -78,174 +78,6 @@ let logs = [];
 let funis = new Map();
 let lastSuccessfulInstanceIndex = -1;
 
-// ============ FUNIS PADRÃO ============
-const defaultFunnels = {
-    'CS_APROVADA': {
-        id: 'CS_APROVADA',
-        name: 'CS - Compra Aprovada',
-        steps: [
-            {
-                id: 'step_0',
-                type: 'text',
-                text: 'Parabéns! Seu pedido foi aprovado. Bem-vindo ao CS!',
-                waitForReply: true
-            },
-            {
-                id: 'step_1',
-                type: 'text',
-                text: 'Obrigado pela resposta! Agora me confirma se recebeu o acesso ao curso por email?',
-                waitForReply: true
-            },
-            {
-                id: 'step_2',
-                type: 'text',
-                text: 'Perfeito! Lembre-se de acessar nossa plataforma. Qualquer dúvida, estamos aqui!'
-            },
-            {
-                id: 'step_3',
-                type: 'delay',
-                delaySeconds: 420
-            },
-            {
-                id: 'step_4',
-                type: 'text',
-                text: 'Já está conseguindo acessar o conteúdo? Precisa de alguma ajuda?',
-                waitForReply: true
-            },
-            {
-                id: 'step_5',
-                type: 'text',
-                text: 'Ótimo! Aproveite o conteúdo e bons estudos!'
-            },
-            {
-                id: 'step_6',
-                type: 'delay',
-                delaySeconds: 1500
-            },
-            {
-                id: 'step_7',
-                type: 'text',
-                text: 'Lembre-se de que nosso suporte está sempre disponível para ajudar você!'
-            }
-        ]
-    },
-    'CS_PIX': {
-        id: 'CS_PIX',
-        name: 'CS - PIX Pendente',
-        steps: [
-            {
-                id: 'step_0',
-                type: 'text',
-                text: 'Seu PIX foi gerado! Aguardamos o pagamento para liberar o acesso ao CS.',
-                waitForReply: true
-            },
-            {
-                id: 'step_1',
-                type: 'text',
-                text: 'Obrigado pelo contato! Me confirma que está com dificuldades no pagamento?',
-                waitForReply: true
-            },
-            {
-                id: 'step_2',
-                type: 'text',
-                text: 'Se precisar de ajuda com o pagamento, nossa equipe está disponível!'
-            },
-            {
-                id: 'step_3',
-                type: 'delay',
-                delaySeconds: 1500
-            },
-            {
-                id: 'step_4',
-                type: 'text',
-                text: 'Ainda não identificamos seu pagamento. Lembre-se que o PIX tem validade limitada.'
-            },
-            {
-                id: 'step_5',
-                type: 'delay',
-                delaySeconds: 1500
-            },
-            {
-                id: 'step_6',
-                type: 'text',
-                text: 'PIX vencido! Entre em contato conosco para gerar um novo.'
-            }
-        ]
-    },
-    'FAB_APROVADA': {
-        id: 'FAB_APROVADA',
-        name: 'FAB - Compra Aprovada',
-        steps: [
-            {
-                id: 'step_0',
-                type: 'text',
-                text: 'Parabéns! Seu pedido FAB foi aprovado. Bem-vindo!',
-                waitForReply: true
-            },
-            {
-                id: 'step_1',
-                type: 'text',
-                text: 'Obrigado pela resposta! Confirma se recebeu o acesso ao FAB por email?',
-                waitForReply: true
-            },
-            {
-                id: 'step_2',
-                type: 'text',
-                text: 'Perfeito! Aproveite o conteúdo FAB. Qualquer dúvida, estamos aqui!'
-            },
-            {
-                id: 'step_3',
-                type: 'delay',
-                delaySeconds: 420
-            },
-            {
-                id: 'step_4',
-                type: 'text',
-                text: 'Já está conseguindo acessar o conteúdo FAB? Precisa de ajuda?',
-                waitForReply: true
-            },
-            {
-                id: 'step_5',
-                type: 'text',
-                text: 'Ótimo! Aproveite o conteúdo e bons estudos!'
-            }
-        ]
-    },
-    'FAB_PIX': {
-        id: 'FAB_PIX',
-        name: 'FAB - PIX Pendente',
-        steps: [
-            {
-                id: 'step_0',
-                type: 'text',
-                text: 'Seu PIX FAB foi gerado! Aguardamos o pagamento.',
-                waitForReply: true
-            },
-            {
-                id: 'step_1',
-                type: 'text',
-                text: 'Obrigado pelo contato! Está com dificuldades no pagamento?',
-                waitForReply: true
-            },
-            {
-                id: 'step_2',
-                type: 'text',
-                text: 'Nossa equipe está disponível para ajudar com o pagamento!'
-            },
-            {
-                id: 'step_3',
-                type: 'delay',
-                delaySeconds: 1500
-            },
-            {
-                id: 'step_4',
-                type: 'text',
-                text: 'Ainda não identificamos seu pagamento. O PIX tem validade limitada.'
-            }
-        ]
-    }
-};
-
 // ============ SISTEMA DE LOCK ============
 async function acquireWebhookLock(phoneKey, timeout = 10000) {
     const startTime = Date.now();
@@ -387,8 +219,6 @@ setInterval(async () => {
     await saveFunnelsToFile();
     await saveConversationsToFile();
 }, 30000);
-
-Object.values(defaultFunnels).forEach(funnel => funis.set(funnel.id, funnel));
 
 // ============ MIDDLEWARES ============
 app.use(express.json());
@@ -1563,67 +1393,41 @@ app.post('/webhook/evolution', async (req, res) => {
         }
         
         try {
-            // ✅ MUDANÇA CRÍTICA: Aceitar resposta mesmo se não estiver waiting_for_response
-            if (!conversation.waiting_for_response) {
-                addLog('WEBHOOK_NOT_WAITING_BUT_ACCEPTING', `[${debugId}] ⚠️ Não estava aguardando, mas aceitando resposta`, { 
-                    phoneKey,
-                    stepIndex: conversation.stepIndex,
-                    funnelId: conversation.funnelId,
-                    messageText: messageText.substring(0, 50)
-                });
-                
-                // ✅ Verificar se o passo atual realmente espera resposta
-                const funnel = funis.get(conversation.funnelId);
-                if (funnel && funnel.steps[conversation.stepIndex]) {
-                    const currentStep = funnel.steps[conversation.stepIndex];
-                    
-                    if (currentStep.waitForReply) {
-                        addLog('WEBHOOK_STEP_SHOULD_WAIT', `[${debugId}] ✅ Passo deveria esperar resposta - processando`, { 
-                            phoneKey,
-                            stepIndex: conversation.stepIndex,
-                            stepType: currentStep.type
-                        });
-                    } else {
-                        addLog('WEBHOOK_STEP_NO_WAIT', `[${debugId}] ℹ️ Passo não espera resposta - registrando apenas`, { 
-                            phoneKey,
-                            stepIndex: conversation.stepIndex,
-                            stepType: currentStep.type
-                        });
-                        
-                        // Apenas registrar a resposta mas não avançar
-                        conversation.lastReply = new Date();
-                        conversation.unexpectedReply = messageText;
-                        conversations.set(phoneKey, conversation);
-                        await saveConversationsToFile();
-                        
-                        return res.json({ success: true });
-                    }
-                }
-            }
-            
-            addLog('CLIENT_REPLY', `[${debugId}] 💬 Resposta do cliente`, { 
-                phoneKey, 
-                text: messageText.substring(0, 100),
-                messageType,
+        // ✅ V4.7: ACEITAR QUALQUER RESPOSTA - SEMPRE AVANÇAR
+        if (!conversation.waiting_for_response) {
+            addLog('WEBHOOK_NOT_WAITING', `[${debugId}] ℹ️ Não estava aguardando, MAS VAI PROCESSAR MESMO ASSIM`, { 
+                phoneKey,
                 stepIndex: conversation.stepIndex,
                 funnelId: conversation.funnelId
             });
             
-            // ✅ Atualizar estado
+            // ✅ FORÇAR waiting_for_response = false para poder avançar
             conversation.waiting_for_response = false;
-            conversation.lastReply = new Date();
-            conversation.lastReplyText = messageText;
-            conversations.set(phoneKey, conversation);
-            
-            // ✅ Salvar imediatamente
-            await saveConversationsToFile();
-            
-            addLog('WEBHOOK_ADVANCING', `[${debugId}] ➡️ Avançando conversa`, { phoneKey });
-            
-            // ✅ Avançar conversa
-            await advanceConversation(phoneKey, messageText, 'reply');
-            
-            addLog('WEBHOOK_SUCCESS', `[${debugId}] ✅ Processamento completo`, { phoneKey });
+        }
+        
+        addLog('CLIENT_REPLY', `[${debugId}] 💬 Resposta do cliente (SEMPRE ACEITA)`, { 
+            phoneKey, 
+            text: messageText.substring(0, 100),
+            messageType,
+            stepIndex: conversation.stepIndex,
+            funnelId: conversation.funnelId
+        });
+        
+        // ✅ Atualizar estado
+        conversation.waiting_for_response = false;
+        conversation.lastReply = new Date();
+        conversation.lastReplyText = messageText;
+        conversations.set(phoneKey, conversation);
+        
+        // ✅ Salvar imediatamente
+        await saveConversationsToFile();
+        
+        addLog('WEBHOOK_ADVANCING', `[${debugId}] ➡️ AVANÇANDO conversa SEMPRE`, { phoneKey });
+        
+        // ✅ Avançar conversa SEMPRE
+        await advanceConversation(phoneKey, messageText, 'reply');
+        
+        addLog('WEBHOOK_SUCCESS', `[${debugId}] ✅ Processamento completo`, { phoneKey });
             
             res.json({ success: true, phoneKey, debugId });
             
@@ -2359,7 +2163,82 @@ app.get('/api/diagnostico', (req, res) => {
     });
 });
 
-// 🧪 TESTE DIRETO - Criar conversa CS PIX
+// 🧪 TESTE FORÇA BRUTA - Criar e iniciar imediatamente
+app.post('/api/test/force-start', async (req, res) => {
+    try {
+        const testPhone = req.body.phone || '5511972322430';
+        const funnelId = req.body.funnelId || 'CS_APROVADA';
+        
+        const phoneKey = extractPhoneKey(testPhone);
+        const remoteJid = phoneToRemoteJid(testPhone);
+        const orderCode = 'FORCE_' + Date.now();
+        
+        addLog('FORCE_START', '💪 FORÇANDO criação e início', { 
+            phoneKey, 
+            funnelId,
+            orderCode 
+        });
+        
+        // Registrar telefone em TODAS as variações
+        registerPhone(testPhone, phoneKey);
+        
+        // Criar conversa DIRETAMENTE no Map
+        const conversation = {
+            phoneKey,
+            phone: testPhone,
+            remoteJid,
+            funnelId,
+            stepIndex: 0,  // Começar no passo 0
+            orderCode,
+            customerName: 'Teste Force',
+            productType: 'CS',
+            amount: 'R$ 197,00',
+            waiting_for_response: false,
+            pixWaiting: false,  // NÃO está esperando PIX
+            createdAt: new Date(),
+            lastSystemMessage: null,
+            lastReply: null,
+            canceled: false,
+            completed: false,
+            forceCreated: true
+        };
+        
+        conversations.set(phoneKey, conversation);
+        
+        addLog('FORCE_CREATED', '✅ Conversa FORÇADA criada', {
+            phoneKey,
+            conversationsSize: conversations.size,
+            hasConversation: conversations.has(phoneKey)
+        });
+        
+        // Salvar imediatamente
+        await saveConversationsToFile();
+        
+        // Enviar PRIMEIRO PASSO AGORA
+        addLog('FORCE_SENDING', '📤 Enviando primeiro passo', { phoneKey });
+        await sendStep(phoneKey);
+        
+        res.json({
+            success: true,
+            message: 'Conversa forçada criada e iniciada',
+            phoneKey,
+            phone: testPhone,
+            funnelId,
+            orderCode,
+            conversationsSize: conversations.size,
+            info: 'Agora envie QUALQUER mensagem do WhatsApp que o sistema vai continuar'
+        });
+        
+    } catch (error) {
+        addLog('FORCE_ERROR', '❌ Erro ao forçar', { error: error.message });
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// 🧪 TESTE CS PIX - Criar conversa com timeout de 7 minutos
 app.post('/api/test/cs-pix', async (req, res) => {
     try {
         const testPhone = '5511972322430';
@@ -2454,25 +2333,30 @@ app.post('/api/teste-envio', async (req, res) => {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO + PERFECTPAY V4.6.3 LOGS EXTREMOS 🔍🔍🔍');
+    console.log('🚀 KIRVANO + PERFECTPAY V5.0 FINAL - SEM FUNIS HARDCODED ✨✨✨');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
     console.log('Instâncias:', INSTANCES.length, '-', INSTANCES.join(', '));
     console.log('');
-    console.log('✅ V4.6.3 - DEBUG EXTREMO:');
-    console.log('  🔍 NEW: Logs em CADA etapa de criação de conversa');
-    console.log('  🔍 NEW: Rastreamento completo do Map');
-    console.log('  🔍 NEW: Endpoint /api/debug/map-status');
-    console.log('  💾 Salvamento IMEDIATO em todos os pontos');
-    console.log('  💾 Funis carregam automaticamente');
-    console.log('  💾 Volume /data persiste');
+    console.log('✅ V5.0 - VERSÃO FINAL LIMPA:');
+    console.log('  🔥 REMOVIDO: Funis hardcoded (agora usa APENAS funnels-default.json)');
+    console.log('  💪 Webhook aceita QUALQUER resposta');
+    console.log('  🔍 Logs extremos em cada etapa');
+    console.log('  💾 Salvamento imediato');
+    console.log('  📱 Sistema continua conversa após cliente responder');
     console.log('');
-    console.log('📡 Endpoints de Debug:');
-    console.log('  GET  /api/debug/map-status              - Estado do Map ✨ NOVO');
-    console.log('  POST /api/test/cs-pix                   - Criar teste');
-    console.log('  GET  /api/conversations                 - Ver conversas');
-    console.log('  GET  /api/logs?limit=100                - Ver logs');
+    console.log('📡 Endpoints:');
+    console.log('  POST /api/test/force-start           - CRIAR E INICIAR AGORA');
+    console.log('  POST /api/test/cs-pix                - Teste PIX (7min)');
+    console.log('  GET  /api/debug/map-status           - Ver estado do Map');
+    console.log('  GET  /api/conversations              - Ver conversas');
+    console.log('  GET  /api/logs?limit=200             - Ver logs');
+    console.log('');
+    console.log('🎯 IMPORTANTE:');
+    console.log('  ✅ Sistema carrega funis de funnels-default.json');
+    console.log('  ✅ Suas mensagens configuradas serão usadas');
+    console.log('  ✅ Cliente responde QUALQUER coisa → sistema continua');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('='.repeat(70));
