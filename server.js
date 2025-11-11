@@ -2196,6 +2196,10 @@ app.get('/test.html', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'test.html'));
 });
 
+app.get('/diagnostico.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'diagnostico.html'));
+});
+
 // ============ INICIALIZAÇÃO ============
 async function initializeData() {
     console.log('🔄 Carregando dados...');
@@ -2207,6 +2211,102 @@ async function initializeData() {
     console.log('📊 Funis:', funis.size);
     console.log('💬 Conversas:', conversations.size);
 }
+
+// 🔍 DIAGNÓSTICO COMPLETO
+app.get('/api/diagnostico', (req, res) => {
+    const conversationsArray = Array.from(conversations.entries()).map(([key, conv]) => ({
+        phoneKey: key,
+        ...conv,
+        createdAt: conv.createdAt?.toISOString(),
+        lastSystemMessage: conv.lastSystemMessage?.toISOString(),
+        lastReply: conv.lastReply?.toISOString()
+    }));
+    
+    const pixTimeoutsArray = Array.from(pixTimeouts.entries()).map(([key, data]) => ({
+        phoneKey: key,
+        orderCode: data.orderCode,
+        createdAt: data.createdAt?.toISOString(),
+        hasTimeout: !!data.timeout
+    }));
+    
+    const funisArray = Array.from(funis.entries()).map(([id, funnel]) => ({
+        id,
+        name: funnel.name,
+        stepCount: funnel.steps?.length || 0
+    }));
+    
+    res.json({
+        status: 'OK',
+        timestamp: new Date().toISOString(),
+        system: {
+            version: 'V4.6.1',
+            uptime: process.uptime(),
+            instances: INSTANCES
+        },
+        funis: {
+            total: funis.size,
+            list: funisArray
+        },
+        conversas: {
+            total: conversations.size,
+            list: conversationsArray
+        },
+        pixTimeouts: {
+            total: pixTimeouts.size,
+            list: pixTimeoutsArray
+        },
+        lastLogs: logs.slice(-10)
+    });
+});
+
+// 🧪 TESTE DIRETO - ENVIAR MENSAGEM AGORA
+app.post('/api/teste-envio', async (req, res) => {
+    try {
+        const { phone, message } = req.body;
+        
+        if (!phone || !message) {
+            return res.status(400).json({ 
+                error: 'Necessário: phone e message',
+                example: { phone: '5511999999999', message: 'Teste' }
+            });
+        }
+        
+        const instance = INSTANCES[0];
+        const remoteJid = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
+        
+        addLog('TESTE_ENVIO_START', `Testando envio para ${phone}`, { instance });
+        
+        const response = await axios.post(
+            `${EVOLUTION_BASE_URL}/message/sendText/${instance}`,
+            {
+                number: remoteJid,
+                text: message
+            },
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': EVOLUTION_API_KEY
+                }
+            }
+        );
+        
+        addLog('TESTE_ENVIO_SUCCESS', 'Mensagem enviada com sucesso!');
+        
+        res.json({
+            success: true,
+            message: 'Mensagem enviada!',
+            data: response.data
+        });
+        
+    } catch (error) {
+        addLog('TESTE_ENVIO_ERROR', `Erro: ${error.message}`);
+        res.status(500).json({
+            success: false,
+            error: error.message,
+            details: error.response?.data
+        });
+    }
+});
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
