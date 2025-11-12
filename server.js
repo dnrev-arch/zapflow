@@ -78,6 +78,174 @@ let logs = [];
 let funis = new Map();
 let lastSuccessfulInstanceIndex = -1;
 
+// ============ FUNIS PADRÃO ============
+const defaultFunnels = {
+    'CS_APROVADA': {
+        id: 'CS_APROVADA',
+        name: 'CS - Compra Aprovada',
+        steps: [
+            {
+                id: 'step_0',
+                type: 'text',
+                text: 'Parabéns! Seu pedido foi aprovado. Bem-vindo ao CS!',
+                waitForReply: true
+            },
+            {
+                id: 'step_1',
+                type: 'text',
+                text: 'Obrigado pela resposta! Agora me confirma se recebeu o acesso ao curso por email?',
+                waitForReply: true
+            },
+            {
+                id: 'step_2',
+                type: 'text',
+                text: 'Perfeito! Lembre-se de acessar nossa plataforma. Qualquer dúvida, estamos aqui!'
+            },
+            {
+                id: 'step_3',
+                type: 'delay',
+                delaySeconds: 420
+            },
+            {
+                id: 'step_4',
+                type: 'text',
+                text: 'Já está conseguindo acessar o conteúdo? Precisa de alguma ajuda?',
+                waitForReply: true
+            },
+            {
+                id: 'step_5',
+                type: 'text',
+                text: 'Ótimo! Aproveite o conteúdo e bons estudos!'
+            },
+            {
+                id: 'step_6',
+                type: 'delay',
+                delaySeconds: 1500
+            },
+            {
+                id: 'step_7',
+                type: 'text',
+                text: 'Lembre-se de que nosso suporte está sempre disponível para ajudar você!'
+            }
+        ]
+    },
+    'CS_PIX': {
+        id: 'CS_PIX',
+        name: 'CS - PIX Pendente',
+        steps: [
+            {
+                id: 'step_0',
+                type: 'text',
+                text: 'Seu PIX foi gerado! Aguardamos o pagamento para liberar o acesso ao CS.',
+                waitForReply: true
+            },
+            {
+                id: 'step_1',
+                type: 'text',
+                text: 'Obrigado pelo contato! Me confirma que está com dificuldades no pagamento?',
+                waitForReply: true
+            },
+            {
+                id: 'step_2',
+                type: 'text',
+                text: 'Se precisar de ajuda com o pagamento, nossa equipe está disponível!'
+            },
+            {
+                id: 'step_3',
+                type: 'delay',
+                delaySeconds: 1500
+            },
+            {
+                id: 'step_4',
+                type: 'text',
+                text: 'Ainda não identificamos seu pagamento. Lembre-se que o PIX tem validade limitada.'
+            },
+            {
+                id: 'step_5',
+                type: 'delay',
+                delaySeconds: 1500
+            },
+            {
+                id: 'step_6',
+                type: 'text',
+                text: 'PIX vencido! Entre em contato conosco para gerar um novo.'
+            }
+        ]
+    },
+    'FAB_APROVADA': {
+        id: 'FAB_APROVADA',
+        name: 'FAB - Compra Aprovada',
+        steps: [
+            {
+                id: 'step_0',
+                type: 'text',
+                text: 'Parabéns! Seu pedido FAB foi aprovado. Bem-vindo!',
+                waitForReply: true
+            },
+            {
+                id: 'step_1',
+                type: 'text',
+                text: 'Obrigado pela resposta! Confirma se recebeu o acesso ao FAB por email?',
+                waitForReply: true
+            },
+            {
+                id: 'step_2',
+                type: 'text',
+                text: 'Perfeito! Aproveite o conteúdo FAB. Qualquer dúvida, estamos aqui!'
+            },
+            {
+                id: 'step_3',
+                type: 'delay',
+                delaySeconds: 420
+            },
+            {
+                id: 'step_4',
+                type: 'text',
+                text: 'Já está conseguindo acessar o conteúdo FAB? Precisa de ajuda?',
+                waitForReply: true
+            },
+            {
+                id: 'step_5',
+                type: 'text',
+                text: 'Ótimo! Aproveite o conteúdo e bons estudos!'
+            }
+        ]
+    },
+    'FAB_PIX': {
+        id: 'FAB_PIX',
+        name: 'FAB - PIX Pendente',
+        steps: [
+            {
+                id: 'step_0',
+                type: 'text',
+                text: 'Seu PIX FAB foi gerado! Aguardamos o pagamento.',
+                waitForReply: true
+            },
+            {
+                id: 'step_1',
+                type: 'text',
+                text: 'Obrigado pelo contato! Está com dificuldades no pagamento?',
+                waitForReply: true
+            },
+            {
+                id: 'step_2',
+                type: 'text',
+                text: 'Nossa equipe está disponível para ajudar com o pagamento!'
+            },
+            {
+                id: 'step_3',
+                type: 'delay',
+                delaySeconds: 1500
+            },
+            {
+                id: 'step_4',
+                type: 'text',
+                text: 'Ainda não identificamos seu pagamento. O PIX tem validade limitada.'
+            }
+        ]
+    }
+};
+
 // ============ SISTEMA DE LOCK ============
 async function acquireWebhookLock(phoneKey, timeout = 10000) {
     const startTime = Date.now();
@@ -122,25 +290,6 @@ async function saveFunnelsToFile() {
 
 async function loadFunnelsFromFile() {
     try {
-        await ensureDataDir();
-        
-        // Verifica se o arquivo existe
-        try {
-            await fs.access(DATA_FILE);
-        } catch {
-            // Arquivo não existe, copiar do padrão
-            addLog('DATA_LOAD', 'Arquivo de funis não existe, copiando padrão...');
-            try {
-                const defaultFunnels = await fs.readFile('./funnels-default.json', 'utf8');
-                await fs.writeFile(DATA_FILE, defaultFunnels);
-                addLog('DATA_LOAD', 'Funis padrão copiados com sucesso');
-            } catch (error) {
-                addLog('DATA_LOAD_ERROR', 'Erro ao copiar funis padrão: ' + error.message);
-                return false;
-            }
-        }
-        
-        // Agora carregar do arquivo
         const data = await fs.readFile(DATA_FILE, 'utf8');
         const funnelsArray = JSON.parse(data);
         
@@ -154,7 +303,7 @@ async function loadFunnelsFromFile() {
         addLog('DATA_LOAD', 'Funis carregados: ' + funis.size);
         return true;
     } catch (error) {
-        addLog('DATA_LOAD_ERROR', 'Erro ao carregar funis: ' + error.message);
+        addLog('DATA_LOAD_ERROR', 'Usando funis padrão');
         return false;
     }
 }
@@ -220,6 +369,8 @@ setInterval(async () => {
     await saveConversationsToFile();
 }, 30000);
 
+Object.values(defaultFunnels).forEach(funnel => funis.set(funnel.id, funnel));
+
 // ============ MIDDLEWARES ============
 app.use(express.json());
 app.use(express.static('public'));
@@ -231,36 +382,18 @@ function extractPhoneKey(phone) {
     return cleaned.slice(-8);
 }
 
-// ✅ V4.5 - FUNÇÃO MELHORADA: Registra telefone em TODOS os formatos possíveis
 function registerPhone(fullPhone, phoneKey) {
     if (!phoneKey || phoneKey.length !== 8) return;
     
     const cleaned = fullPhone.replace(/\D/g, '');
+    phoneIndex.set(cleaned, phoneKey);
     
-    // Registrar todas as variações possíveis
-    const variations = new Set([
-        cleaned,                                    // 5561986160340
-        cleaned.replace(/^55/, ''),                 // 61986160340
-        '55' + cleaned.replace(/^55/, ''),          // 5561986160340
-        phoneKey,                                   // 86160340
-        cleaned.slice(-11),                         // 61986160340
-        cleaned.slice(-10),                         // 6186160340
-        cleaned.slice(-9),                          // 986160340
-        cleaned.slice(-8)                           // 86160340
-    ]);
-    
-    // Registrar todas as variações
-    variations.forEach(variation => {
-        if (variation && variation.length >= 8) {
-            phoneIndex.set(variation, phoneKey);
-        }
-    });
-    
-    addLog('PHONE_REGISTERED', `Telefone registrado em ${variations.size} formatos`, {
-        phoneKey,
-        fullPhone: cleaned,
-        variations: Array.from(variations)
-    });
+    if (cleaned.startsWith('55')) {
+        phoneIndex.set(cleaned.substring(2), phoneKey);
+    }
+    if (!cleaned.startsWith('55')) {
+        phoneIndex.set('55' + cleaned, phoneKey);
+    }
 }
 
 function findConversationByPhone(phone) {
@@ -272,90 +405,6 @@ function findConversationByPhone(phone) {
         registerPhone(phone, phoneKey);
     }
     return conversation;
-}
-
-// ✅ V4.5 - NOVA FUNÇÃO: Busca ULTRA robusta de conversa
-function findConversationRobust(incomingPhone, remoteJid) {
-    const cleaned = incomingPhone.replace(/\D/g, '');
-    const phoneKey = extractPhoneKey(incomingPhone);
-    
-    addLog('FIND_CONVERSATION_START', 'Iniciando busca robusta', {
-        incomingPhone,
-        cleaned,
-        phoneKey,
-        remoteJid
-    });
-    
-    // NÍVEL 1: Busca direta por phoneKey
-    let conversation = conversations.get(phoneKey);
-    if (conversation) {
-        addLog('FIND_CONVERSATION_SUCCESS', 'Encontrado: Busca direta phoneKey', { phoneKey });
-        return { conversation, phoneKey, method: 'direct_phonekey' };
-    }
-    
-    // NÍVEL 2: Busca por phoneIndex (múltiplas variações)
-    const variations = [
-        cleaned,
-        cleaned.replace(/^55/, ''),
-        '55' + cleaned.replace(/^55/, ''),
-        cleaned.slice(-11),
-        cleaned.slice(-10),
-        cleaned.slice(-9),
-        cleaned.slice(-8)
-    ];
-    
-    for (const variation of variations) {
-        const foundKey = phoneIndex.get(variation);
-        if (foundKey) {
-            conversation = conversations.get(foundKey);
-            if (conversation) {
-                addLog('FIND_CONVERSATION_SUCCESS', 'Encontrado: phoneIndex variation', { 
-                    variation, 
-                    foundKey 
-                });
-                return { conversation, phoneKey: foundKey, method: 'phoneindex' };
-            }
-        }
-    }
-    
-    // NÍVEL 3: Busca por remoteJid
-    for (const [key, conv] of conversations.entries()) {
-        if (conv.remoteJid === remoteJid) {
-            addLog('FIND_CONVERSATION_SUCCESS', 'Encontrado: remoteJid match', { key, remoteJid });
-            return { conversation: conv, phoneKey: key, method: 'remotejid' };
-        }
-    }
-    
-    // NÍVEL 4: Busca por match parcial de telefone (último recurso)
-    for (const [key, conv] of conversations.entries()) {
-        const convPhone = conv.phone.replace(/\D/g, '');
-        
-        // Testa se os últimos 8 dígitos batem
-        if (convPhone.slice(-8) === cleaned.slice(-8)) {
-            addLog('FIND_CONVERSATION_SUCCESS', 'Encontrado: partial match (últimos 8)', { 
-                key, 
-                convPhone: convPhone.slice(-8),
-                incomingPhone: cleaned.slice(-8)
-            });
-            return { conversation: conv, phoneKey: key, method: 'partial_match' };
-        }
-        
-        // Testa se um contém o outro
-        if (cleaned.includes(convPhone) || convPhone.includes(cleaned)) {
-            addLog('FIND_CONVERSATION_SUCCESS', 'Encontrado: includes match', { key });
-            return { conversation: conv, phoneKey: key, method: 'includes' };
-        }
-    }
-    
-    addLog('FIND_CONVERSATION_FAILED', 'Nenhuma conversa encontrada após 4 níveis', {
-        incomingPhone,
-        cleaned,
-        phoneKey,
-        totalConversations: conversations.size,
-        allPhoneKeys: Array.from(conversations.keys())
-    });
-    
-    return null;
 }
 
 function phoneToRemoteJid(phone) {
@@ -580,11 +629,17 @@ async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFir
 // ============ ORQUESTRAÇÃO ============
 
 async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, amount) {
-    addLog('CREATE_PIX_START', '🔴 INICIANDO criação PIX', { 
-        phoneKey, 
-        orderCode,
-        conversationsBefore: conversations.size 
-    });
+    // 🔴🔴🔴 LOG EXTREMO 🔴🔴🔴
+    console.log('🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴');
+    console.log('🔴 createPixWaitingConversation CHAMADA!!!');
+    console.log('🔴 Timestamp:', Date.now());
+    console.log('🔴 phoneKey:', phoneKey);
+    console.log('🔴 orderCode:', orderCode);
+    console.log('🔴 productType:', productType);
+    console.log('🔴 Map size ANTES:', conversations.size);
+    console.log('🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴');
+    
+    addLog('CREATE_PIX_EXTREMO', '🔴🔴🔴 FUNÇÃO CHAMADA', { phoneKey, orderCode, productType });
     
     const conversation = {
         phoneKey,
@@ -604,81 +659,48 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
         completed: false
     };
     
-    addLog('CREATE_PIX_BEFORE_SET', '🟡 ANTES de conversations.set', { 
-        phoneKey,
-        conversationsSize: conversations.size,
-        conversationData: JSON.stringify(conversation)
-    });
-    
     conversations.set(phoneKey, conversation);
     
-    addLog('CREATE_PIX_AFTER_SET', '🟢 DEPOIS de conversations.set', { 
-        phoneKey,
-        conversationsSize: conversations.size,
-        conversationExists: conversations.has(phoneKey),
-        conversationData: conversations.get(phoneKey) ? 'EXISTS' : 'NOT FOUND'
-    });
-    
-    await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
-    
-    addLog('CREATE_PIX_AFTER_SAVE', '💾 DEPOIS de salvar', { 
-        phoneKey,
-        conversationsSize: conversations.size
-    });
+    console.log('🔴 Conversa adicionada ao Map');
+    console.log('🔴 Map size DEPOIS:', conversations.size);
+    console.log('🔴 Has phoneKey?', conversations.has(phoneKey));
     
     addLog('PIX_WAITING_CREATED', `PIX em espera para ${phoneKey}`, { orderCode, productType });
     
     const timeout = setTimeout(async () => {
-        addLog('PIX_TIMEOUT_START', '⏰ Timeout PIX DISPARANDO', { phoneKey, orderCode });
+        console.log('⏰⏰⏰ TIMEOUT PIX DISPARADO para', phoneKey);
         
         const conv = conversations.get(phoneKey);
-        
-        addLog('PIX_TIMEOUT_CHECK', '🔍 Verificando conversa no timeout', {
-            phoneKey,
-            conversationExists: !!conv,
-            conversationsSize: conversations.size,
-            conversationData: conv ? JSON.stringify(conv) : 'NOT FOUND'
-        });
-        
         if (conv && conv.orderCode === orderCode && !conv.canceled && conv.pixWaiting) {
             addLog('PIX_TIMEOUT_TRIGGERED', `Timeout PIX disparado para ${phoneKey}`, { orderCode });
             
             conv.pixWaiting = false;
             conv.stepIndex = 0;
             conversations.set(phoneKey, conv);
-            await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
-            
-            addLog('PIX_TIMEOUT_BEFORE_SENDSTEP', '📤 Antes de sendStep', {
-                phoneKey,
-                stepIndex: conv.stepIndex,
-                funnelId: conv.funnelId
-            });
             
             await sendStep(phoneKey);
-            
-            addLog('PIX_TIMEOUT_AFTER_SENDSTEP', '✅ Depois de sendStep', { phoneKey });
-        } else {
-            addLog('PIX_TIMEOUT_SKIP', '⏭️ Timeout ignorado', {
-                phoneKey,
-                hasConv: !!conv,
-                orderMatch: conv?.orderCode === orderCode,
-                notCanceled: !conv?.canceled,
-                pixWaiting: conv?.pixWaiting
-            });
         }
         pixTimeouts.delete(phoneKey);
     }, PIX_TIMEOUT);
     
     pixTimeouts.set(phoneKey, { timeout, orderCode, createdAt: new Date() });
     
-    addLog('CREATE_PIX_COMPLETE', '✅ CRIAÇÃO PIX COMPLETA', {
-        phoneKey,
-        conversationsSize: conversations.size,
-        pixTimeoutsSize: pixTimeouts.size
-    });
+    console.log('🔴 Timeout configurado:', PIX_TIMEOUT, 'ms');
+    console.log('🔴🔴🔴 FIM createPixWaitingConversation 🔴🔴🔴\n');
 }
 
 async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerName, productType, amount) {
+    // 🟢🟢🟢 LOG EXTREMO 🟢🟢🟢
+    console.log('🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢');
+    console.log('🟢 transferPixToApproved CHAMADA!!!');
+    console.log('🟢 Timestamp:', Date.now());
+    console.log('🟢 phoneKey:', phoneKey);
+    console.log('🟢 orderCode:', orderCode);
+    console.log('🟢 Map size ANTES:', conversations.size);
+    console.log('🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢');
+    
+    addLog('TRANSFER_PIX_EXTREMO', '🟢🟢🟢 FUNÇÃO CHAMADA', { phoneKey, orderCode });
+    
     const pixConv = conversations.get(phoneKey);
     
     if (pixConv) {
@@ -724,13 +746,31 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
     };
     
     conversations.set(phoneKey, approvedConv);
-    await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
+    
+    console.log('🟢 Conversa transferida para APROVADA');
+    console.log('🟢 Map size DEPOIS:', conversations.size);
+    console.log('🟢 Has phoneKey?', conversations.has(phoneKey));
+    
     addLog('TRANSFER_PIX_TO_APPROVED', `Transferido para APROVADA`, { phoneKey, startingStep, productType });
     
     await sendStep(phoneKey);
+    
+    console.log('🟢🟢🟢 FIM transferPixToApproved 🟢🟢🟢\n');
 }
 
 async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerName, productType, amount) {
+    // 🔵🔵🔵 LOG EXTREMO 🔵🔵🔵
+    console.log('🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵');
+    console.log('🔵 startFunnel CHAMADA!!!');
+    console.log('🔵 Timestamp:', Date.now());
+    console.log('🔵 phoneKey:', phoneKey);
+    console.log('🔵 funnelId:', funnelId);
+    console.log('🔵 orderCode:', orderCode);
+    console.log('🔵 Map size ANTES:', conversations.size);
+    console.log('🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵');
+    
+    addLog('START_FUNNEL_EXTREMO', '🔵🔵🔵 FUNÇÃO CHAMADA', { phoneKey, funnelId, orderCode });
+    
     const conversation = {
         phoneKey,
         remoteJid,
@@ -749,18 +789,21 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
     };
     
     conversations.set(phoneKey, conversation);
-    await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
+    
+    console.log('🔵 Conversa criada');
+    console.log('🔵 Map size DEPOIS:', conversations.size);
+    console.log('🔵 Has phoneKey?', conversations.has(phoneKey));
+    
     addLog('FUNNEL_START', `Iniciando ${funnelId} para ${phoneKey}`, { orderCode });
+    
     await sendStep(phoneKey);
+    
+    console.log('🔵🔵🔵 FIM startFunnel 🔵🔵🔵\n');
 }
 
-// ✅ ============ SENDSTEP CORRIGIDO V4.4 ============
 async function sendStep(phoneKey) {
     const conversation = conversations.get(phoneKey);
-    if (!conversation) {
-        addLog('SENDSTEP_NO_CONV', `Conversa não encontrada`, { phoneKey });
-        return;
-    }
+    if (!conversation) return;
     
     if (conversation.canceled) {
         addLog('STEP_CANCELED', `Conversa cancelada`, { phoneKey });
@@ -773,104 +816,58 @@ async function sendStep(phoneKey) {
     }
     
     const funnel = funis.get(conversation.funnelId);
-    if (!funnel) {
-        addLog('SENDSTEP_NO_FUNNEL', `Funil não encontrado`, { 
-            phoneKey, 
-            funnelId: conversation.funnelId 
-        });
-        return;
-    }
+    if (!funnel) return;
     
     const step = funnel.steps[conversation.stepIndex];
-    if (!step) {
-        addLog('SENDSTEP_NO_STEP', `Passo não encontrado`, { 
-            phoneKey, 
-            stepIndex: conversation.stepIndex,
-            totalSteps: funnel.steps.length 
-        });
-        return;
-    }
+    if (!step) return;
     
     const isFirstMessage = conversation.stepIndex === 0 && !conversation.lastSystemMessage;
     
-    addLog('STEP_SEND_START', `📤 Enviando passo ${conversation.stepIndex}`, { 
+    addLog('STEP_SEND_START', `Enviando passo ${conversation.stepIndex}`, { 
         phoneKey,
         funnelId: conversation.funnelId,
-        stepType: step.type,
-        waitForReply: step.waitForReply,
-        isFirstMessage
+        stepType: step.type
     });
     
     let result = { success: true };
     
-    // Delay antes (se configurado)
     if (step.delayBefore && step.delayBefore > 0) {
         const delaySeconds = parseInt(step.delayBefore);
-        addLog('STEP_DELAY_BEFORE', `⏰ Aguardando ${delaySeconds}s antes de enviar`, { phoneKey });
+        addLog('STEP_DELAY_BEFORE', `Aguardando ${delaySeconds}s antes de enviar`, { phoneKey });
         await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
     }
     
-    // Mostrar "digitando..." (se configurado)
     if (step.showTyping && step.type !== 'delay' && step.type !== 'typing') {
-        addLog('STEP_SHOW_TYPING', `💬 Mostrando "digitando..." por 3s`, { phoneKey });
+        addLog('STEP_SHOW_TYPING', `Mostrando "digitando..." por 3s`, { phoneKey });
         await new Promise(resolve => setTimeout(resolve, 3000));
     }
     
-    // Processar o passo
     if (step.type === 'delay') {
         const delaySeconds = step.delaySeconds || 10;
-        addLog('STEP_DELAY', `⏰ Delay de ${delaySeconds}s`, { phoneKey });
+        addLog('STEP_DELAY', `Delay de ${delaySeconds}s`, { phoneKey });
         await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
     } else if (step.type === 'typing') {
         const typingSeconds = step.typingSeconds || 3;
-        addLog('STEP_TYPING', `💬 Digitando ${typingSeconds}s`, { phoneKey });
+        addLog('STEP_TYPING', `Digitando ${typingSeconds}s`, { phoneKey });
         await new Promise(resolve => setTimeout(resolve, typingSeconds * 1000));
     } else {
-        // Enviar mensagem real
-        result = await sendWithFallback(
-            phoneKey, 
-            conversation.remoteJid, 
-            step.type, 
-            step.text, 
-            step.mediaUrl, 
-            isFirstMessage
-        );
+        result = await sendWithFallback(phoneKey, conversation.remoteJid, step.type, step.text, step.mediaUrl, isFirstMessage);
     }
     
     if (result.success) {
         conversation.lastSystemMessage = new Date();
         
-        // ✅ MUDANÇA CRÍTICA: Salvar IMEDIATAMENTE após marcar waiting_for_response
         if (step.waitForReply && step.type !== 'delay' && step.type !== 'typing') {
             conversation.waiting_for_response = true;
             conversations.set(phoneKey, conversation);
-            
-            // ✅ SALVAR IMEDIATAMENTE!
-            await saveConversationsToFile();
-            
-            addLog('STEP_WAITING_REPLY', `⏸️ Aguardando resposta passo ${conversation.stepIndex}`, { 
-                phoneKey,
-                waitingSince: new Date().toISOString()
-            });
+            addLog('STEP_WAITING_REPLY', `Aguardando resposta passo ${conversation.stepIndex}`, { phoneKey });
         } else {
             conversations.set(phoneKey, conversation);
-            addLog('STEP_AUTO_ADVANCE', `➡️ Avançando automaticamente passo ${conversation.stepIndex}`, { phoneKey });
+            addLog('STEP_AUTO_ADVANCE', `Avançando automaticamente passo ${conversation.stepIndex}`, { phoneKey });
             await advanceConversation(phoneKey, null, 'auto');
         }
     } else {
-        addLog('STEP_FAILED', `❌ Falha no envio`, { 
-            phoneKey, 
-            error: result.error,
-            stepIndex: conversation.stepIndex,
-            stepType: step.type
-        });
-        
-        // ✅ Marcar erro na conversa
-        conversation.hasError = true;
-        conversation.errorMessage = result.error;
-        conversation.errorAt = new Date();
-        conversations.set(phoneKey, conversation);
-        await saveConversationsToFile();
+        addLog('STEP_FAILED', `Falha no envio`, { phoneKey, error: result.error });
     }
 }
 
@@ -894,7 +891,6 @@ async function advanceConversation(phoneKey, replyText, reason) {
         conversation.completed = true;
         conversation.completedAt = new Date();
         conversations.set(phoneKey, conversation);
-        await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
         return;
     }
     
@@ -906,7 +902,6 @@ async function advanceConversation(phoneKey, replyText, reason) {
     }
     
     conversations.set(phoneKey, conversation);
-    await saveConversationsToFile(); // 💾 SALVAR IMEDIATAMENTE
     addLog('STEP_ADVANCE', `Avançando para passo ${nextStepIndex}`, { phoneKey, reason });
     
     await sendStep(phoneKey);
@@ -917,10 +912,21 @@ async function advanceConversation(phoneKey, replyText, reason) {
 // WEBHOOK KIRVANO
 app.post('/webhook/kirvano', async (req, res) => {
     try {
+        // 🟡🟡🟡 LOG EXTREMO 🟡🟡🟡
+        console.log('\n🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡');
+        console.log('🟡 WEBHOOK KIRVANO RECEBIDO!!!');
+        console.log('🟡 Timestamp:', Date.now());
+        console.log('🟡 Map size atual:', conversations.size);
+        console.log('🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡');
+        
         const data = req.body;
         const event = String(data.event || '').toUpperCase();
         const status = String(data.status || data.payment_status || '').toUpperCase();
         const method = String(data.payment?.method || data.payment_method || '').toUpperCase();
+        
+        console.log('🟡 Event:', event);
+        console.log('🟡 Status:', status);
+        console.log('🟡 Method:', method);
         
         const saleId = data.sale_id || data.checkout_id;
         const orderCode = saleId || 'ORDER_' + Date.now();
@@ -930,8 +936,11 @@ app.post('/webhook/kirvano', async (req, res) => {
         
         const phoneKey = extractPhoneKey(customerPhone);
         if (!phoneKey || phoneKey.length !== 8) {
+            console.log('🟡 TELEFONE INVÁLIDO');
             return res.json({ success: false, message: 'Telefone inválido' });
         }
+        
+        console.log('🟡 PhoneKey:', phoneKey);
         
         const remoteJid = phoneToRemoteJid(customerPhone);
         registerPhone(customerPhone, phoneKey);
@@ -939,18 +948,24 @@ app.post('/webhook/kirvano', async (req, res) => {
         const productId = data.product_id || data.products?.[0]?.id;
         const productType = PRODUCT_MAPPING[productId] || 'CS';
         
+        console.log('🟡 ProductType:', productType);
+        
         addLog('KIRVANO_EVENT', `${event} - ${customerName}`, { orderCode, phoneKey, method, productType });
         
         const isApproved = event.includes('APPROVED') || event.includes('PAID') || status === 'APPROVED';
         const isPix = method.includes('PIX') || event.includes('PIX');
         
         if (isApproved) {
+            console.log('🟡 ✅ APROVADO detectado');
+            
             const existingConv = conversations.get(phoneKey);
             
             if (existingConv && existingConv.funnelId === productType + '_PIX') {
+                console.log('🟡 Chamando transferPixToApproved...');
                 addLog('KIRVANO_PIX_TO_APPROVED', `Cliente pagou PIX`, { phoneKey, orderCode, productType });
                 await transferPixToApproved(phoneKey, remoteJid, orderCode, customerName, productType, totalPrice);
             } else {
+                console.log('🟡 Chamando startFunnel APROVADA...');
                 addLog('KIRVANO_DIRECT_APPROVED', `Pagamento aprovado direto`, { phoneKey, orderCode, productType });
                 
                 const pixTimeout = pixTimeouts.get(phoneKey);
@@ -962,54 +977,48 @@ app.post('/webhook/kirvano', async (req, res) => {
                 await startFunnel(phoneKey, remoteJid, productType + '_APROVADA', orderCode, customerName, productType, totalPrice);
             }
         } else if (isPix && event.includes('GENERATED')) {
+            console.log('🟡 💰 PIX GERADO detectado');
+            
             addLog('KIRVANO_PIX_GENERATED', `PIX gerado, aguardando 7min`, { phoneKey, orderCode, productType });
             
             const existingConv = conversations.get(phoneKey);
             if (existingConv && !existingConv.canceled) {
+                console.log('🟡 Conversa já existe, ignorando');
                 addLog('KIRVANO_PIX_DUPLICATE', `Conversa já existe`, { phoneKey });
                 return res.json({ success: true, message: 'Conversa já existe' });
             }
             
+            console.log('🟡 Chamando createPixWaitingConversation...');
             await createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, totalPrice);
         }
+        
+        console.log('🟡🟡🟡 FIM WEBHOOK KIRVANO 🟡🟡🟡\n');
         
         res.json({ success: true, phoneKey });
         
     } catch (error) {
+        console.log('🟡 ❌ ERRO no webhook Kirvano:', error.message);
         addLog('KIRVANO_ERROR', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// WEBHOOK PERFECTPAY
+// ✨ WEBHOOK PERFECTPAY COM DEBUG ULTRA DETALHADO
 app.post('/webhook/perfectpay', async (req, res) => {
     try {
-        addLog('PERFECTPAY_WEBHOOK_RECEIVED', '🎯 Webhook PerfectPay RECEBIDO!', {
-            timestamp: new Date().toISOString(),
-            bodySize: JSON.stringify(req.body).length,
-            hasBody: !!req.body
-        });
+        // 🟣🟣🟣 LOG EXTREMO 🟣🟣🟣
+        console.log('\n🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣');
+        console.log('🟣 WEBHOOK PERFECTPAY RECEBIDO!!!');
+        console.log('🟣 Timestamp:', Date.now());
+        console.log('🟣 Map size atual:', conversations.size);
+        console.log('🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣');
         
-        addLog('PERFECTPAY_RAW_BODY', 'Body completo do webhook', {
-            rawBody: JSON.stringify(req.body, null, 2)
+        addLog('PERFECTPAY_WEBHOOK_RECEIVED', '🟣 Webhook recebido', {
+            timestamp: new Date().toISOString(),
+            bodySize: JSON.stringify(req.body).length
         });
         
         const data = req.body;
-        
-        addLog('PERFECTPAY_MAIN_FIELDS', 'Campos principais extraídos', {
-            hasCode: !!data.code,
-            code: data.code,
-            hasSaleStatusEnum: !!data.sale_status_enum,
-            saleStatusEnum: data.sale_status_enum,
-            hasProduct: !!data.product,
-            productCode: data.product?.code,
-            hasPlan: !!data.plan,
-            planCode: data.plan?.code,
-            hasCustomer: !!data.customer,
-            customerFullName: data.customer?.full_name,
-            hasPaymentTypeEnum: !!data.payment_type_enum,
-            paymentTypeEnum: data.payment_type_enum
-        });
         
         const statusEnum = parseInt(data.sale_status_enum);
         const saleCode = data.code;
@@ -1023,436 +1032,159 @@ app.post('/webhook/perfectpay', async (req, res) => {
         const totalPrice = 'R$ ' + (saleAmount / 100).toFixed(2).replace('.', ',');
         const paymentType = parseInt(data.payment_type_enum || 0);
         
-        addLog('PERFECTPAY_PROCESSED_DATA', 'Dados após processamento', {
-            statusEnum,
-            saleCode,
-            productCode,
-            planCode,
-            customerName,
-            phoneAreaCode,
-            phoneNumber,
-            customerPhone,
-            saleAmount,
-            totalPrice,
-            paymentType
-        });
-        
-        addLog('PERFECTPAY_PHONE_VALIDATION_START', 'Iniciando validação do telefone', {
-            customerPhone,
-            phoneLength: customerPhone.length
-        });
+        console.log('🟣 Status:', statusEnum);
+        console.log('🟣 PaymentType:', paymentType);
+        console.log('🟣 Phone:', customerPhone);
         
         const phoneKey = extractPhoneKey(customerPhone);
         
-        addLog('PERFECTPAY_PHONE_EXTRACTED', 'Telefone extraído', {
-            customerPhone,
-            phoneKey,
-            phoneKeyLength: phoneKey?.length,
-            isValid: phoneKey && phoneKey.length === 8
-        });
-        
         if (!phoneKey || phoneKey.length !== 8) {
-            addLog('PERFECTPAY_INVALID_PHONE', '❌ TELEFONE INVÁLIDO!', {
-                customerPhone,
-                phoneAreaCode,
-                phoneNumber,
-                phoneKey,
-                phoneKeyLength: phoneKey?.length,
-                expectedLength: 8
-            });
-            return res.json({ success: false, message: 'Telefone inválido', debug: { customerPhone, phoneKey } });
+            console.log('🟣 TELEFONE INVÁLIDO');
+            addLog('PERFECTPAY_INVALID_PHONE', 'Telefone inválido', { customerPhone, phoneKey });
+            return res.json({ success: false, message: 'Telefone inválido' });
         }
         
-        addLog('PERFECTPAY_PHONE_VALID', '✅ Telefone válido!', { phoneKey });
+        console.log('🟣 PhoneKey:', phoneKey);
         
         const remoteJid = phoneToRemoteJid(customerPhone);
         registerPhone(customerPhone, phoneKey);
         
-        addLog('PERFECTPAY_PHONE_REGISTERED', 'Telefone registrado', {
-            phoneKey,
-            remoteJid
-        });
-        
-        addLog('PERFECTPAY_PRODUCT_IDENTIFICATION', 'Identificando produto', {
-            productCode,
-            planCode,
-            availablePlans: Object.keys(PERFECTPAY_PLANS),
-            availableProducts: Object.keys(PERFECTPAY_PRODUCTS)
-        });
-        
         const productType = identifyPerfectPayProduct(productCode, planCode);
         
-        addLog('PERFECTPAY_PRODUCT_IDENTIFIED', '✅ Produto identificado', {
-            productCode,
-            planCode,
-            productType,
-            usedPlan: PERFECTPAY_PLANS[planCode] ? true : false,
-            usedProduct: PERFECTPAY_PRODUCTS[productCode] ? true : false
-        });
+        console.log('🟣 ProductType:', productType);
         
-        addLog('PERFECTPAY_STATUS_ANALYSIS', 'Analisando status do webhook', {
-            statusEnum,
-            statusEnumType: typeof statusEnum,
-            isStatus1: statusEnum === 1,
-            isStatus2: statusEnum === 2,
-            paymentType,
-            paymentTypeType: typeof paymentType,
-            isBoleto: paymentType === 2
-        });
-        
-        addLog('PERFECTPAY_WEBHOOK_STATUS', `Status ${statusEnum} processando`, { 
+        addLog('PERFECTPAY_WEBHOOK_STATUS', `Status ${statusEnum}`, { 
             saleCode, 
             phoneKey, 
             productType,
-            productCode,
-            planCode,
-            totalPrice,
-            statusEnum,
-            paymentType,
-            customerName
+            paymentType
         });
         
         if (statusEnum === 2) {
-            addLog('PERFECTPAY_STATUS_2_DETECTED', '✅ STATUS 2 - APROVADO DETECTADO!', { 
-                phoneKey, 
-                saleCode,
-                productType 
-            });
+            console.log('🟣 ✅ STATUS 2 (APROVADO) detectado');
             
             const existingConv = conversations.get(phoneKey);
             
-            addLog('PERFECTPAY_CHECK_EXISTING_CONV', 'Verificando conversa existente', {
-                phoneKey,
-                hasExistingConv: !!existingConv,
-                existingFunnelId: existingConv?.funnelId,
-                expectedPixFunnelId: productType + '_PIX',
-                isPixFunnel: existingConv?.funnelId === productType + '_PIX'
-            });
-            
             if (existingConv && existingConv.funnelId === productType + '_PIX') {
-                addLog('PERFECTPAY_PIX_TO_APPROVED', '🔄 Transferindo PIX → APROVADA', { 
-                    phoneKey, 
-                    saleCode, 
-                    productType,
-                    plan: planCode 
-                });
+                console.log('🟣 Chamando transferPixToApproved...');
+                addLog('PERFECTPAY_PIX_TO_APPROVED', 'Transferindo PIX → APROVADA', { phoneKey, saleCode });
                 await transferPixToApproved(phoneKey, remoteJid, saleCode, customerName, productType, totalPrice);
-                addLog('PERFECTPAY_PIX_TO_APPROVED_DONE', '✅ Transferência concluída', { phoneKey });
             } else {
-                addLog('PERFECTPAY_DIRECT_APPROVED', '🚀 Iniciando funil APROVADA direto', { 
-                    phoneKey, 
-                    saleCode, 
-                    productType,
-                    plan: planCode 
-                });
+                console.log('🟣 Chamando startFunnel APROVADA...');
+                addLog('PERFECTPAY_DIRECT_APPROVED', 'Iniciando APROVADA direto', { phoneKey, saleCode });
                 
                 const pixTimeout = pixTimeouts.get(phoneKey);
                 if (pixTimeout) {
                     clearTimeout(pixTimeout.timeout);
                     pixTimeouts.delete(phoneKey);
-                    addLog('PERFECTPAY_PIX_TIMEOUT_CLEARED', 'Timeout PIX cancelado', { phoneKey });
                 }
                 
                 await startFunnel(phoneKey, remoteJid, productType + '_APROVADA', saleCode, customerName, productType, totalPrice);
-                addLog('PERFECTPAY_DIRECT_APPROVED_DONE', '✅ Funil APROVADA iniciado', { phoneKey });
             }
+            
+            console.log('🟣🟣🟣 FIM WEBHOOK PERFECTPAY (APROVADO) 🟣🟣🟣\n');
             
             res.json({ success: true, phoneKey, productType, action: 'approved' });
             return;
         }
         
         else if (statusEnum === 1) {
-            addLog('PERFECTPAY_STATUS_1_DETECTED', '⏳ STATUS 1 - PENDENTE DETECTADO!', { 
-                phoneKey, 
-                saleCode,
-                paymentType,
-                isBoleto: paymentType === 2
-            });
+            console.log('🟣 ⏳ STATUS 1 (PENDENTE) detectado');
             
             if (paymentType === 2) {
-                addLog('PERFECTPAY_BOLETO_IGNORED', '📄 Boleto detectado - IGNORANDO', { 
-                    phoneKey, 
-                    saleCode,
-                    reason: 'Sistema só processa PIX'
-                });
-                return res.json({ success: true, message: 'Boleto ignorado', action: 'boleto_ignored' });
+                console.log('🟣 Boleto detectado - IGNORANDO');
+                addLog('PERFECTPAY_BOLETO_IGNORED', 'Boleto ignorado', { phoneKey, saleCode });
+                return res.json({ success: true, message: 'Boleto ignorado' });
             }
             
-            addLog('PERFECTPAY_PIX_DETECTED', '💰 PIX PENDENTE DETECTADO!', { 
-                phoneKey, 
-                saleCode, 
-                productType,
-                plan: planCode 
-            });
+            console.log('🟣 💰 PIX PENDENTE detectado');
             
             const existingConv = conversations.get(phoneKey);
             
-            addLog('PERFECTPAY_CHECK_DUPLICATE', 'Verificando duplicação', {
-                phoneKey,
-                hasExistingConv: !!existingConv,
-                isCanceled: existingConv?.canceled
-            });
-            
             if (existingConv && !existingConv.canceled) {
-                addLog('PERFECTPAY_PIX_DUPLICATE', '⚠️ Conversa já existe - IGNORANDO', { 
-                    phoneKey,
-                    existingFunnelId: existingConv.funnelId,
-                    existingOrderCode: existingConv.orderCode
-                });
-                return res.json({ success: true, message: 'Conversa já existe', action: 'duplicate_ignored' });
+                console.log('🟣 Conversa já existe - IGNORANDO');
+                addLog('PERFECTPAY_PIX_DUPLICATE', 'Conversa já existe', { phoneKey });
+                return res.json({ success: true, message: 'Conversa já existe' });
             }
             
-            addLog('PERFECTPAY_CREATING_PIX_WAITING', '🔄 Criando conversa PIX aguardando...', {
-                phoneKey,
-                saleCode,
-                productType,
-                customerName,
-                totalPrice
-            });
-            
+            console.log('🟣 Chamando createPixWaitingConversation...');
             await createPixWaitingConversation(phoneKey, remoteJid, saleCode, customerName, productType, totalPrice);
             
-            addLog('PERFECTPAY_PIX_WAITING_CREATED', '✅ PIX aguardando criado com sucesso!', {
-                phoneKey,
-                saleCode,
-                funnelId: productType + '_PIX',
-                timeout: '7 minutos'
-            });
+            console.log('🟣🟣🟣 FIM WEBHOOK PERFECTPAY (PIX PENDENTE) 🟣🟣🟣\n');
             
             res.json({ success: true, phoneKey, productType, action: 'pix_waiting_created' });
             return;
         }
         
         else {
-            addLog('PERFECTPAY_STATUS_OTHER', `ℹ️ Status ${statusEnum} - Outros`, { 
-                phoneKey, 
-                saleCode,
-                statusEnum,
-                statusDescription: getStatusDescription(statusEnum)
-            });
-            
+            console.log('🟣 Status outro:', statusEnum);
+            addLog('PERFECTPAY_STATUS_OTHER', `Status ${statusEnum}`, { phoneKey, saleCode });
             res.json({ success: true, phoneKey, productType, action: 'status_' + statusEnum });
-            return;
         }
         
     } catch (error) {
-        addLog('PERFECTPAY_ERROR', '❌ ERRO CRÍTICO no webhook!', { 
-            errorMessage: error.message,
-            errorStack: error.stack,
-            bodyReceived: JSON.stringify(req.body)
-        });
+        console.log('🟣 ❌ ERRO no webhook PerfectPay:', error.message);
+        addLog('PERFECTPAY_ERROR', 'Erro crítico', { error: error.message });
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// ✅ ============ WEBHOOK EVOLUTION CORRIGIDO V4.4 ============
+// WEBHOOK EVOLUTION
 app.post('/webhook/evolution', async (req, res) => {
-    const debugId = Date.now();
-    
     try {
-        addLog('WEBHOOK_RECEIVED', `[${debugId}] 📥 Webhook recebido`, {
-            bodySize: JSON.stringify(req.body).length,
-            timestamp: new Date().toISOString()
-        });
-        
         const data = req.body;
         const messageData = data.data;
         
-        // ✅ Log completo do payload
-        addLog('WEBHOOK_RAW_DATA', `[${debugId}] 📦 Payload completo`, {
-            hasData: !!data,
-            hasMessageData: !!messageData,
-            hasKey: !!messageData?.key,
-            fullPayload: JSON.stringify(data, null, 2)
-        });
-        
         if (!messageData || !messageData.key) {
-            addLog('WEBHOOK_INVALID', `[${debugId}] ❌ Payload inválido - sem messageData ou key`, { data });
             return res.json({ success: true });
         }
         
         const remoteJid = messageData.key.remoteJid;
         const fromMe = messageData.key.fromMe;
         const messageText = extractMessageText(messageData.message);
-        const messageType = Object.keys(messageData.message || {})[0];
-        
-        addLog('WEBHOOK_PARSED', `[${debugId}] 🔍 Dados extraídos`, {
-            remoteJid,
-            fromMe,
-            messageType,
-            messageText: messageText.substring(0, 100),
-            hasMessage: !!messageData.message
-        });
         
         const incomingPhone = remoteJid.replace('@s.whatsapp.net', '');
-        const initialPhoneKey = extractPhoneKey(incomingPhone);
-        let phoneKey = initialPhoneKey;
+        const phoneKey = extractPhoneKey(incomingPhone);
         
-        addLog('WEBHOOK_PHONE_EXTRACTED', `[${debugId}] 📞 Telefone processado`, {
-            remoteJid,
-            incomingPhone,
-            phoneKey: initialPhoneKey,
-            phoneKeyLength: initialPhoneKey?.length,
-            phoneKeyValid: initialPhoneKey && initialPhoneKey.length === 8
-        });
-        
-        if (!initialPhoneKey || initialPhoneKey.length !== 8) {
-            addLog('WEBHOOK_INVALID_PHONE', `[${debugId}] ❌ Telefone inválido`, { 
-                incomingPhone, 
-                phoneKey: initialPhoneKey,
-                phoneKeyLength: initialPhoneKey?.length 
-            });
+        if (!phoneKey || phoneKey.length !== 8) {
             return res.json({ success: true });
         }
         
         if (fromMe) {
-            addLog('WEBHOOK_FROM_ME', `[${debugId}] 🤖 Mensagem do sistema - ignorando`, { phoneKey: initialPhoneKey });
             return res.json({ success: true });
         }
         
-        // ✅ V4.5: BUSCA ROBUSTA COM 4 NÍVEIS
-        const result = findConversationRobust(incomingPhone, remoteJid);
-        let conversation = null;
-        
-        if (result) {
-            conversation = result.conversation;
-            phoneKey = result.phoneKey; // Atualizar phoneKey com o correto
-            
-            addLog('WEBHOOK_CONVERSATION_FOUND', `[${debugId}] ✅ Conversa encontrada!`, {
-                method: result.method,
-                phoneKey,
-                funnelId: conversation.funnelId,
-                stepIndex: conversation.stepIndex
-            });
-        }
-        
-        addLog('WEBHOOK_CONVERSATION_STATUS', `[${debugId}] 💬 Status da conversa`, {
-            phoneKey,
-            found: !!conversation,
-            canceled: conversation?.canceled,
-            completed: conversation?.completed,
-            waiting_for_response: conversation?.waiting_for_response,
-            pixWaiting: conversation?.pixWaiting,
-            funnelId: conversation?.funnelId,
-            stepIndex: conversation?.stepIndex,
-            lastSystemMessage: conversation?.lastSystemMessage?.toISOString(),
-            lastReply: conversation?.lastReply?.toISOString(),
-            totalConversations: conversations.size
-        });
-        
-        if (!conversation) {
-            addLog('WEBHOOK_NO_CONVERSATION', `[${debugId}] ⚠️ Nenhuma conversa encontrada`, { 
-                phoneKey,
-                incomingPhone,
-                remoteJid,
-                allPhoneKeys: Array.from(conversations.keys()),
-                allPhones: Array.from(conversations.values()).map(c => ({
-                    key: c.phoneKey,
-                    phone: c.phone,
-                    remoteJid: c.remoteJid
-                }))
-            });
-            return res.json({ success: true });
-        }
-        
-        if (conversation.canceled) {
-            addLog('WEBHOOK_CANCELED', `[${debugId}] ⛔ Conversa cancelada`, { 
-                phoneKey,
-                cancelReason: conversation.cancelReason,
-                canceledAt: conversation.canceledAt 
-            });
-            return res.json({ success: true });
-        }
-        
-        if (conversation.completed) {
-            addLog('WEBHOOK_COMPLETED', `[${debugId}] ✅ Conversa já concluída`, { 
-                phoneKey,
-                completedAt: conversation.completedAt 
-            });
-            return res.json({ success: true });
-        }
-        
-        if (conversation.pixWaiting) {
-            addLog('WEBHOOK_PIX_WAITING', `[${debugId}] ⏳ PIX ainda aguardando timeout`, { 
-                phoneKey,
-                orderCode: conversation.orderCode 
-            });
-            // ✅ NOVO: Registrar que cliente respondeu durante PIX waiting
-            conversation.repliedDuringPixWait = true;
-            conversation.pixWaitReplyAt = new Date();
-            conversations.set(phoneKey, conversation);
-            await saveConversationsToFile(); // Salvar imediatamente
-            return res.json({ success: true });
-        }
-        
-        // ✅ Adquirir lock
         const hasLock = await acquireWebhookLock(phoneKey);
         if (!hasLock) {
-            addLog('WEBHOOK_LOCK_TIMEOUT', `[${debugId}] ⏱️ Timeout no lock`, { phoneKey });
             return res.json({ success: false, message: 'Lock timeout' });
         }
         
         try {
-        // ✅ V4.7: ACEITAR QUALQUER RESPOSTA - SEMPRE AVANÇAR
-        if (!conversation.waiting_for_response) {
-            addLog('WEBHOOK_NOT_WAITING', `[${debugId}] ℹ️ Não estava aguardando, MAS VAI PROCESSAR MESMO ASSIM`, { 
-                phoneKey,
-                stepIndex: conversation.stepIndex,
-                funnelId: conversation.funnelId
-            });
+            const conversation = findConversationByPhone(incomingPhone);
             
-            // ✅ FORÇAR waiting_for_response = false para poder avançar
+            if (!conversation || conversation.canceled || !conversation.waiting_for_response) {
+                addLog('WEBHOOK_NOT_WAITING', `Não aguardando resposta`, { phoneKey });
+                return res.json({ success: true });
+            }
+            
+            addLog('CLIENT_REPLY', `Resposta recebida`, { phoneKey, text: messageText.substring(0, 50) });
+            
             conversation.waiting_for_response = false;
-        }
-        
-        addLog('CLIENT_REPLY', `[${debugId}] 💬 Resposta do cliente (SEMPRE ACEITA)`, { 
-            phoneKey, 
-            text: messageText.substring(0, 100),
-            messageType,
-            stepIndex: conversation.stepIndex,
-            funnelId: conversation.funnelId
-        });
-        
-        // ✅ Atualizar estado
-        conversation.waiting_for_response = false;
-        conversation.lastReply = new Date();
-        conversation.lastReplyText = messageText;
-        conversations.set(phoneKey, conversation);
-        
-        // ✅ Salvar imediatamente
-        await saveConversationsToFile();
-        
-        addLog('WEBHOOK_ADVANCING', `[${debugId}] ➡️ AVANÇANDO conversa SEMPRE`, { phoneKey });
-        
-        // ✅ Avançar conversa SEMPRE
-        await advanceConversation(phoneKey, messageText, 'reply');
-        
-        addLog('WEBHOOK_SUCCESS', `[${debugId}] ✅ Processamento completo`, { phoneKey });
+            conversation.lastReply = new Date();
+            conversations.set(phoneKey, conversation);
             
-            res.json({ success: true, phoneKey, debugId });
+            await advanceConversation(phoneKey, messageText, 'reply');
+            
+            res.json({ success: true });
             
         } finally {
-            if (phoneKey) {
-                releaseWebhookLock(phoneKey);
-                addLog('WEBHOOK_LOCK_RELEASED', `[${debugId}] 🔓 Lock liberado`, { phoneKey });
-            }
-        }
-        
-    } catch (error) {
-        addLog('EVOLUTION_ERROR', `[${debugId}] ❌ ERRO CRÍTICO`, { 
-            error: error.message,
-            stack: error.stack
-        });
-        
-        if (phoneKey) {
             releaseWebhookLock(phoneKey);
         }
         
-        res.status(500).json({ 
-            success: false, 
-            error: error.message,
-            debugId 
-        });
+    } catch (error) {
+        addLog('EVOLUTION_ERROR', error.message);
+        releaseWebhookLock(phoneKey);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
@@ -1653,7 +1385,7 @@ app.get('/api/funnels/export', (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(JSON.stringify({
-            version: '4.4',
+            version: '4.3',
             exportDate: new Date().toISOString(),
             totalFunnels: funnelsArray.length,
             funnels: funnelsArray
@@ -1743,8 +1475,7 @@ app.get('/api/debug/evolution', async (req, res) => {
     const debugInfo = {
         evolution_base_url: EVOLUTION_BASE_URL,
         evolution_api_key_configured: EVOLUTION_API_KEY !== 'SUA_API_KEY_AQUI',
-        evolution_api_key_length: EVOLUTION_API_KEY.length,
-        instances: INSTANCES,
+        instances_configured: INSTANCES,
         active_conversations: conversations.size,
         sticky_instances_count: stickyInstances.size,
         pix_timeouts_active: pixTimeouts.size,
@@ -1802,264 +1533,12 @@ app.get('/api/debug/evolution', async (req, res) => {
     res.json(debugInfo);
 });
 
-// ✅ ============ ENDPOINTS DE DEBUG V4.4 ============
-
-app.get('/api/debug/conversation/:phoneKey', (req, res) => {
-    const { phoneKey } = req.params;
-    
-    const conversation = conversations.get(phoneKey);
-    
-    if (!conversation) {
-        return res.json({
-            success: false,
-            message: 'Conversa não encontrada',
-            phoneKey,
-            totalConversations: conversations.size,
-            allPhoneKeys: Array.from(conversations.keys())
-        });
-    }
-    
-    const funnel = funis.get(conversation.funnelId);
-    const currentStep = funnel?.steps[conversation.stepIndex];
-    
-    res.json({
-        success: true,
-        conversation: {
-            phoneKey,
-            remoteJid: conversation.remoteJid,
-            customerName: conversation.customerName,
-            productType: conversation.productType,
-            funnelId: conversation.funnelId,
-            stepIndex: conversation.stepIndex,
-            totalSteps: funnel?.steps.length || 0,
-            currentStepType: currentStep?.type,
-            currentStepWaitsReply: currentStep?.waitForReply,
-            waiting_for_response: conversation.waiting_for_response,
-            pixWaiting: conversation.pixWaiting,
-            canceled: conversation.canceled,
-            completed: conversation.completed,
-            hasError: conversation.hasError,
-            errorMessage: conversation.errorMessage,
-            createdAt: conversation.createdAt,
-            lastSystemMessage: conversation.lastSystemMessage,
-            lastReply: conversation.lastReply,
-            lastReplyText: conversation.lastReplyText,
-            stickyInstance: stickyInstances.get(phoneKey),
-            hasPixTimeout: pixTimeouts.has(phoneKey),
-            hasWebhookLock: webhookLocks.has(phoneKey)
-        },
-        currentStep: currentStep,
-        funnel: {
-            id: funnel?.id,
-            name: funnel?.name,
-            totalSteps: funnel?.steps.length
-        }
-    });
-});
-
-app.post('/api/debug/simulate-reply', async (req, res) => {
-    const { phoneKey, messageText } = req.body;
-    
-    if (!phoneKey) {
-        return res.status(400).json({
-            success: false,
-            error: 'phoneKey obrigatório'
-        });
-    }
-    
-    const conversation = conversations.get(phoneKey);
-    
-    if (!conversation) {
-        return res.status(404).json({
-            success: false,
-            error: 'Conversa não encontrada',
-            phoneKey
-        });
-    }
-    
-    addLog('DEBUG_SIMULATE_REPLY', `🧪 Simulando resposta`, { 
-        phoneKey, 
-        messageText: messageText?.substring(0, 50) 
-    });
-    
-    try {
-        if (conversation.waiting_for_response) {
-            conversation.waiting_for_response = false;
-            conversation.lastReply = new Date();
-            conversation.lastReplyText = messageText || 'Resposta simulada';
-            conversations.set(phoneKey, conversation);
-            
-            await saveConversationsToFile();
-            await advanceConversation(phoneKey, messageText || 'Resposta simulada', 'reply');
-            
-            res.json({
-                success: true,
-                message: 'Resposta simulada e conversa avançada',
-                phoneKey,
-                newStepIndex: conversations.get(phoneKey)?.stepIndex
-            });
-        } else {
-            res.json({
-                success: false,
-                message: 'Conversa não estava aguardando resposta',
-                phoneKey,
-                waiting_for_response: conversation.waiting_for_response,
-                stepIndex: conversation.stepIndex
-            });
-        }
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-app.post('/api/debug/force-advance', async (req, res) => {
-    const { phoneKey } = req.body;
-    
-    if (!phoneKey) {
-        return res.status(400).json({
-            success: false,
-            error: 'phoneKey obrigatório'
-        });
-    }
-    
-    const conversation = conversations.get(phoneKey);
-    
-    if (!conversation) {
-        return res.status(404).json({
-            success: false,
-            error: 'Conversa não encontrada',
-            phoneKey
-        });
-    }
-    
-    addLog('DEBUG_FORCE_ADVANCE', `🚀 Forçando avanço`, { phoneKey });
-    
-    try {
-        conversation.waiting_for_response = false;
-        conversations.set(phoneKey, conversation);
-        
-        await advanceConversation(phoneKey, null, 'manual-debug');
-        
-        res.json({
-            success: true,
-            message: 'Conversa avançada manualmente',
-            phoneKey,
-            newStepIndex: conversations.get(phoneKey)?.stepIndex
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-app.get('/api/debug/phone-matching/:phone', (req, res) => {
-    const { phone } = req.params;
-    
-    const phoneKey = extractPhoneKey(phone);
-    const remoteJid = phoneToRemoteJid(phone);
-    const conversation = findConversationByPhone(phone);
-    
-    const directMatch = conversations.get(phoneKey);
-    
-    let jidMatch = null;
-    for (const [key, conv] of conversations.entries()) {
-        if (conv.remoteJid === remoteJid) {
-            jidMatch = { phoneKey: key, conversation: conv };
-            break;
-        }
-    }
-    
-    res.json({
-        success: true,
-        input: {
-            phone,
-            phoneKey,
-            phoneKeyLength: phoneKey?.length,
-            remoteJid
-        },
-        matches: {
-            findConversationByPhone: !!conversation,
-            directPhoneKeyMatch: !!directMatch,
-            remoteJidMatch: !!jidMatch
-        },
-        phoneIndex: {
-            size: phoneIndex.size,
-            hasPhone: phoneIndex.has(phone),
-            hasPhoneKey: phoneIndex.has(phoneKey),
-            value: phoneIndex.get(phone) || phoneIndex.get(phoneKey)
-        },
-        allConversations: Array.from(conversations.entries()).map(([key, conv]) => ({
-            phoneKey: key,
-            remoteJid: conv.remoteJid,
-            customerName: conv.customerName
-        }))
-    });
-});
-
-app.post('/api/debug/test-evolution', async (req, res) => {
-    const { phone, message } = req.body;
-    
-    if (!phone) {
-        return res.status(400).json({
-            success: false,
-            error: 'Telefone obrigatório'
-        });
-    }
-    
-    const remoteJid = phoneToRemoteJid(phone);
-    const testMessage = message || 'Teste do sistema Kirvano';
-    
-    addLog('DEBUG_TEST_EVOLUTION', `🧪 Testando Evolution`, { phone, remoteJid });
-    
-    const results = [];
-    
-    for (const instance of INSTANCES.slice(0, 3)) {
-        try {
-            const result = await sendText(remoteJid, testMessage, instance);
-            
-            results.push({
-                instance,
-                success: result.ok,
-                data: result.data,
-                error: result.error
-            });
-            
-            if (result.ok) break;
-        } catch (error) {
-            results.push({
-                instance,
-                success: false,
-                error: error.message
-            });
-        }
-    }
-    
-    res.json({
-        success: results.some(r => r.success),
-        phone,
-        remoteJid,
-        testMessage,
-        results
-    });
-});
-
-// ============ ROTAS FRONTEND ============
-
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.get('/test.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'test.html'));
-});
-
-app.get('/diagnostico.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'diagnostico.html'));
+app.get('/teste.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'teste.html'));
 });
 
 // ============ INICIALIZAÇÃO ============
@@ -2074,289 +1553,24 @@ async function initializeData() {
     console.log('💬 Conversas:', conversations.size);
 }
 
-// 🔍 DIAGNÓSTICO DO MAP
-app.get('/api/debug/map-status', (req, res) => {
-    const conversationsArray = Array.from(conversations.entries());
-    const phoneIndexArray = Array.from(phoneIndex.entries());
-    const pixTimeoutsArray = Array.from(pixTimeouts.entries());
-    
-    res.json({
-        success: true,
-        timestamp: new Date().toISOString(),
-        maps: {
-            conversations: {
-                size: conversations.size,
-                keys: Array.from(conversations.keys()),
-                entries: conversationsArray.map(([key, value]) => ({
-                    key,
-                    phoneKey: value.phoneKey,
-                    funnelId: value.funnelId,
-                    stepIndex: value.stepIndex,
-                    pixWaiting: value.pixWaiting,
-                    waiting_for_response: value.waiting_for_response
-                }))
-            },
-            phoneIndex: {
-                size: phoneIndex.size,
-                entries: phoneIndexArray
-            },
-            pixTimeouts: {
-                size: pixTimeouts.size,
-                entries: pixTimeoutsArray.map(([key, value]) => ({
-                    key,
-                    orderCode: value.orderCode,
-                    createdAt: value.createdAt
-                }))
-            }
-        },
-        systemInfo: {
-            uptime: process.uptime(),
-            memoryUsage: process.memoryUsage()
-        }
-    });
-});
-
-// 🔍 DIAGNÓSTICO COMPLETO
-app.get('/api/diagnostico', (req, res) => {
-    const conversationsArray = Array.from(conversations.entries()).map(([key, conv]) => ({
-        phoneKey: key,
-        ...conv,
-        createdAt: conv.createdAt?.toISOString(),
-        lastSystemMessage: conv.lastSystemMessage?.toISOString(),
-        lastReply: conv.lastReply?.toISOString()
-    }));
-    
-    const pixTimeoutsArray = Array.from(pixTimeouts.entries()).map(([key, data]) => ({
-        phoneKey: key,
-        orderCode: data.orderCode,
-        createdAt: data.createdAt?.toISOString(),
-        hasTimeout: !!data.timeout
-    }));
-    
-    const funisArray = Array.from(funis.entries()).map(([id, funnel]) => ({
-        id,
-        name: funnel.name,
-        stepCount: funnel.steps?.length || 0
-    }));
-    
-    res.json({
-        status: 'OK',
-        timestamp: new Date().toISOString(),
-        system: {
-            version: 'V4.6.1',
-            uptime: process.uptime(),
-            instances: INSTANCES
-        },
-        funis: {
-            total: funis.size,
-            list: funisArray
-        },
-        conversas: {
-            total: conversations.size,
-            list: conversationsArray
-        },
-        pixTimeouts: {
-            total: pixTimeouts.size,
-            list: pixTimeoutsArray
-        },
-        lastLogs: logs.slice(-10)
-    });
-});
-
-// 🧪 TESTE FORÇA BRUTA - Criar e iniciar imediatamente
-app.post('/api/test/force-start', async (req, res) => {
-    try {
-        const testPhone = req.body.phone || '5511972322430';
-        const funnelId = req.body.funnelId || 'CS_APROVADA';
-        
-        const phoneKey = extractPhoneKey(testPhone);
-        const remoteJid = phoneToRemoteJid(testPhone);
-        const orderCode = 'FORCE_' + Date.now();
-        
-        addLog('FORCE_START', '💪 FORÇANDO criação e início', { 
-            phoneKey, 
-            funnelId,
-            orderCode 
-        });
-        
-        // Registrar telefone em TODAS as variações
-        registerPhone(testPhone, phoneKey);
-        
-        // Criar conversa DIRETAMENTE no Map
-        const conversation = {
-            phoneKey,
-            phone: testPhone,
-            remoteJid,
-            funnelId,
-            stepIndex: 0,  // Começar no passo 0
-            orderCode,
-            customerName: 'Teste Force',
-            productType: 'CS',
-            amount: 'R$ 197,00',
-            waiting_for_response: false,
-            pixWaiting: false,  // NÃO está esperando PIX
-            createdAt: new Date(),
-            lastSystemMessage: null,
-            lastReply: null,
-            canceled: false,
-            completed: false,
-            forceCreated: true
-        };
-        
-        conversations.set(phoneKey, conversation);
-        
-        addLog('FORCE_CREATED', '✅ Conversa FORÇADA criada', {
-            phoneKey,
-            conversationsSize: conversations.size,
-            hasConversation: conversations.has(phoneKey)
-        });
-        
-        // Salvar imediatamente
-        await saveConversationsToFile();
-        
-        // Enviar PRIMEIRO PASSO AGORA
-        addLog('FORCE_SENDING', '📤 Enviando primeiro passo', { phoneKey });
-        await sendStep(phoneKey);
-        
-        res.json({
-            success: true,
-            message: 'Conversa forçada criada e iniciada',
-            phoneKey,
-            phone: testPhone,
-            funnelId,
-            orderCode,
-            conversationsSize: conversations.size,
-            info: 'Agora envie QUALQUER mensagem do WhatsApp que o sistema vai continuar'
-        });
-        
-    } catch (error) {
-        addLog('FORCE_ERROR', '❌ Erro ao forçar', { error: error.message });
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-// 🧪 TESTE CS PIX - Criar conversa com timeout de 7 minutos
-app.post('/api/test/cs-pix', async (req, res) => {
-    try {
-        const testPhone = '5511972322430';
-        const phoneKey = extractPhoneKey(testPhone);
-        const remoteJid = phoneToRemoteJid(testPhone);
-        const orderCode = 'TEST_' + Date.now();
-        
-        addLog('TEST_CS_PIX', '🧪 Criando teste CS PIX', { phoneKey, orderCode });
-        
-        // Registrar telefone
-        registerPhone(testPhone, phoneKey);
-        
-        // Criar conversa PIX
-        await createPixWaitingConversation(
-            phoneKey,
-            remoteJid,
-            orderCode,
-            'Cliente Teste',
-            'CS',
-            'R$ 197,00'
-        );
-        
-        addLog('TEST_CS_PIX_CREATED', '✅ Teste criado com sucesso', { phoneKey });
-        
-        res.json({
-            success: true,
-            message: 'Conversa teste criada',
-            phoneKey,
-            phone: testPhone,
-            orderCode,
-            remoteJid,
-            info: 'Aguarde 7 minutos ou envie uma mensagem do WhatsApp'
-        });
-        
-    } catch (error) {
-        addLog('TEST_ERROR', '❌ Erro no teste', { error: error.message });
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-// 🧪 TESTE DIRETO - ENVIAR MENSAGEM AGORA
-app.post('/api/teste-envio', async (req, res) => {
-    try {
-        const { phone, message } = req.body;
-        
-        if (!phone || !message) {
-            return res.status(400).json({ 
-                error: 'Necessário: phone e message',
-                example: { phone: '5511999999999', message: 'Teste' }
-            });
-        }
-        
-        const instance = INSTANCES[0];
-        const remoteJid = phone.includes('@') ? phone : `${phone}@s.whatsapp.net`;
-        
-        addLog('TESTE_ENVIO_START', `Testando envio para ${phone}`, { instance });
-        
-        const response = await axios.post(
-            `${EVOLUTION_BASE_URL}/message/sendText/${instance}`,
-            {
-                number: remoteJid,
-                text: message
-            },
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'apikey': EVOLUTION_API_KEY
-                }
-            }
-        );
-        
-        addLog('TESTE_ENVIO_SUCCESS', 'Mensagem enviada com sucesso!');
-        
-        res.json({
-            success: true,
-            message: 'Mensagem enviada!',
-            data: response.data
-        });
-        
-    } catch (error) {
-        addLog('TESTE_ENVIO_ERROR', `Erro: ${error.message}`);
-        res.status(500).json({
-            success: false,
-            error: error.message,
-            details: error.response?.data
-        });
-    }
-});
-
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO + PERFECTPAY V5.0 FINAL - SEM FUNIS HARDCODED ✨✨✨');
+    console.log('🚀 KIRVANO + PERFECTPAY - DEBUG EXTREMO 🔍🔍🔍');
     console.log('='.repeat(70));
     console.log('Porta:', PORT);
     console.log('Evolution:', EVOLUTION_BASE_URL);
     console.log('Instâncias:', INSTANCES.length, '-', INSTANCES.join(', '));
     console.log('');
-    console.log('✅ V5.0 - VERSÃO FINAL LIMPA:');
-    console.log('  🔥 REMOVIDO: Funis hardcoded (agora usa APENAS funnels-default.json)');
-    console.log('  💪 Webhook aceita QUALQUER resposta');
-    console.log('  🔍 Logs extremos em cada etapa');
-    console.log('  💾 Salvamento imediato');
-    console.log('  📱 Sistema continua conversa após cliente responder');
+    console.log('🔴🟢🔵 LOGS EXTREMOS ATIVADOS!');
+    console.log('  🔴 createPixWaitingConversation');
+    console.log('  🟢 transferPixToApproved');
+    console.log('  🔵 startFunnel');
+    console.log('  🟡 Webhook Kirvano');
+    console.log('  🟣 Webhook PerfectPay');
     console.log('');
-    console.log('📡 Endpoints:');
-    console.log('  POST /api/test/force-start           - CRIAR E INICIAR AGORA');
-    console.log('  POST /api/test/cs-pix                - Teste PIX (7min)');
-    console.log('  GET  /api/debug/map-status           - Ver estado do Map');
-    console.log('  GET  /api/conversations              - Ver conversas');
-    console.log('  GET  /api/logs?limit=200             - Ver logs');
-    console.log('');
-    console.log('🎯 IMPORTANTE:');
-    console.log('  ✅ Sistema carrega funis de funnels-default.json');
-    console.log('  ✅ Suas mensagens configuradas serão usadas');
-    console.log('  ✅ Cliente responde QUALQUER coisa → sistema continua');
+    console.log('📡 Quando venda entrar, você verá emojis coloridos nos logs!');
+    console.log('   Se NÃO aparecer emojis = código não está rodando');
+    console.log('   Se aparecer emojis = código está rodando e vamos descobrir o bug');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('='.repeat(70));
