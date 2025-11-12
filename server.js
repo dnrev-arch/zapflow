@@ -386,25 +386,153 @@ function registerPhone(fullPhone, phoneKey) {
     if (!phoneKey || phoneKey.length !== 8) return;
     
     const cleaned = fullPhone.replace(/\D/g, '');
+    
+    // 🔥 REGISTRAR DE TODAS AS FORMAS POSSÍVEIS
+    
+    // Forma 1: Número completo original
     phoneIndex.set(cleaned, phoneKey);
     
-    if (cleaned.startsWith('55')) {
-        phoneIndex.set(cleaned.substring(2), phoneKey);
-    }
+    // Forma 2: Com 55 (se não tiver)
     if (!cleaned.startsWith('55')) {
         phoneIndex.set('55' + cleaned, phoneKey);
     }
+    
+    // Forma 3: Sem 55 (se tiver)
+    if (cleaned.startsWith('55')) {
+        phoneIndex.set(cleaned.substring(2), phoneKey);
+    }
+    
+    // Forma 4: Últimos 11 dígitos (DDD + número)
+    if (cleaned.length >= 11) {
+        phoneIndex.set(cleaned.slice(-11), phoneKey);
+    }
+    
+    // Forma 5: Últimos 8 dígitos
+    phoneIndex.set(phoneKey, phoneKey);
+    
+    // Forma 6: Com 55 + últimos 11
+    if (cleaned.length >= 11) {
+        phoneIndex.set('55' + cleaned.slice(-11), phoneKey);
+    }
+    
+    // Forma 7: Removendo o "9" se tiver (número antigo)
+    // Ex: 5588997215401 → 558897215401
+    if (cleaned.length === 13 && cleaned.startsWith('55')) {
+        const without9 = cleaned.substring(0, 4) + cleaned.substring(5);
+        phoneIndex.set(without9, phoneKey);
+    }
+    
+    // Forma 8: Adicionando o "9" se não tiver (número novo)
+    // Ex: 558897215401 → 5588997215401
+    if (cleaned.length === 12 && cleaned.startsWith('55')) {
+        const with9 = cleaned.substring(0, 4) + '9' + cleaned.substring(4);
+        phoneIndex.set(with9, phoneKey);
+    }
+    
+    console.log('📞 Telefone registrado:', {
+        original: cleaned,
+        phoneKey: phoneKey,
+        totalVariacoes: phoneIndex.size
+    });
 }
 
 function findConversationByPhone(phone) {
-    const phoneKey = extractPhoneKey(phone);
-    if (!phoneKey || phoneKey.length !== 8) return null;
+    const cleaned = phone.replace(/\D/g, '');
     
-    const conversation = conversations.get(phoneKey);
-    if (conversation) {
-        registerPhone(phone, phoneKey);
+    console.log('🔍 Buscando conversa para:', cleaned);
+    
+    // 🔥 TENTAR DE TODAS AS FORMAS POSSÍVEIS
+    
+    // Tentativa 1: Últimos 8 dígitos (phoneKey padrão)
+    const phoneKey = extractPhoneKey(cleaned);
+    if (phoneKey && phoneKey.length === 8) {
+        const conv1 = conversations.get(phoneKey);
+        if (conv1) {
+            console.log('✅ Encontrado por phoneKey:', phoneKey);
+            registerPhone(cleaned, phoneKey);
+            return conv1;
+        }
     }
-    return conversation;
+    
+    // Tentativa 2: Buscar no phoneIndex usando número completo
+    const indexed = phoneIndex.get(cleaned);
+    if (indexed) {
+        const conv2 = conversations.get(indexed);
+        if (conv2) {
+            console.log('✅ Encontrado por phoneIndex (completo):', indexed);
+            return conv2;
+        }
+    }
+    
+    // Tentativa 3: Com 55
+    if (!cleaned.startsWith('55')) {
+        const with55 = '55' + cleaned;
+        const indexed3 = phoneIndex.get(with55);
+        if (indexed3) {
+            const conv3 = conversations.get(indexed3);
+            if (conv3) {
+                console.log('✅ Encontrado por phoneIndex (com 55):', indexed3);
+                return conv3;
+            }
+        }
+    }
+    
+    // Tentativa 4: Sem 55
+    if (cleaned.startsWith('55')) {
+        const without55 = cleaned.substring(2);
+        const indexed4 = phoneIndex.get(without55);
+        if (indexed4) {
+            const conv4 = conversations.get(indexed4);
+            if (conv4) {
+                console.log('✅ Encontrado por phoneIndex (sem 55):', indexed4);
+                return conv4;
+            }
+        }
+    }
+    
+    // Tentativa 5: Últimos 11 dígitos
+    if (cleaned.length >= 11) {
+        const last11 = cleaned.slice(-11);
+        const indexed5 = phoneIndex.get(last11);
+        if (indexed5) {
+            const conv5 = conversations.get(indexed5);
+            if (conv5) {
+                console.log('✅ Encontrado por phoneIndex (últimos 11):', indexed5);
+                return conv5;
+            }
+        }
+    }
+    
+    // Tentativa 6: Removendo 9 (celular antigo)
+    if (cleaned.length === 13 && cleaned.startsWith('55')) {
+        const without9 = cleaned.substring(0, 4) + cleaned.substring(5);
+        const indexed6 = phoneIndex.get(without9);
+        if (indexed6) {
+            const conv6 = conversations.get(indexed6);
+            if (conv6) {
+                console.log('✅ Encontrado por phoneIndex (sem 9):', indexed6);
+                return conv6;
+            }
+        }
+    }
+    
+    // Tentativa 7: Adicionando 9 (celular novo)
+    if (cleaned.length === 12 && cleaned.startsWith('55')) {
+        const with9 = cleaned.substring(0, 4) + '9' + cleaned.substring(4);
+        const indexed7 = phoneIndex.get(with9);
+        if (indexed7) {
+            const conv7 = conversations.get(indexed7);
+            if (conv7) {
+                console.log('✅ Encontrado por phoneIndex (com 9):', indexed7);
+                return conv7;
+            }
+        }
+    }
+    
+    console.log('❌ Conversa NÃO encontrada para:', cleaned);
+    console.log('❌ PhoneKeys disponíveis:', Array.from(conversations.keys()));
+    
+    return null;
 }
 
 function phoneToRemoteJid(phone) {
@@ -1132,10 +1260,16 @@ app.post('/webhook/perfectpay', async (req, res) => {
 // WEBHOOK EVOLUTION
 app.post('/webhook/evolution', async (req, res) => {
     try {
+        // 🟦🟦🟦 LOG EXTREMO 🟦🟦🟦
+        console.log('\n🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦');
+        console.log('🟦 WEBHOOK EVOLUTION RECEBIDO!!!');
+        console.log('🟦 Timestamp:', Date.now());
+        
         const data = req.body;
         const messageData = data.data;
         
         if (!messageData || !messageData.key) {
+            console.log('🟦 Sem messageData ou key - IGNORANDO\n');
             return res.json({ success: true });
         }
         
@@ -1143,29 +1277,59 @@ app.post('/webhook/evolution', async (req, res) => {
         const fromMe = messageData.key.fromMe;
         const messageText = extractMessageText(messageData.message);
         
+        console.log('🟦 remoteJid:', remoteJid);
+        console.log('🟦 fromMe:', fromMe);
+        console.log('🟦 messageText:', messageText.substring(0, 50));
+        
         const incomingPhone = remoteJid.replace('@s.whatsapp.net', '');
         const phoneKey = extractPhoneKey(incomingPhone);
         
+        console.log('🟦 incomingPhone:', incomingPhone);
+        console.log('🟦 phoneKey extraído:', phoneKey);
+        console.log('🟦 Conversas ativas:', conversations.size);
+        console.log('🟦 PhoneKeys ativos:', Array.from(conversations.keys()));
+        
         if (!phoneKey || phoneKey.length !== 8) {
+            console.log('🟦 phoneKey inválido - IGNORANDO\n');
             return res.json({ success: true });
         }
         
         if (fromMe) {
+            console.log('🟦 Mensagem fromMe - IGNORANDO\n');
             return res.json({ success: true });
         }
         
+        console.log('🟦 Tentando adquirir lock...');
+        
         const hasLock = await acquireWebhookLock(phoneKey);
         if (!hasLock) {
+            console.log('🟦 Lock timeout\n');
             return res.json({ success: false, message: 'Lock timeout' });
         }
         
         try {
+            console.log('🟦 Buscando conversa (vai tentar várias formas)...');
+            
             const conversation = findConversationByPhone(incomingPhone);
+            
+            if (conversation) {
+                console.log('🟦 ✅ Conversa ENCONTRADA!');
+                console.log('🟦 phoneKey da conversa:', conversation.phoneKey);
+                console.log('🟦 funnelId:', conversation.funnelId);
+                console.log('🟦 stepIndex:', conversation.stepIndex);
+                console.log('🟦 waiting_for_response:', conversation.waiting_for_response);
+                console.log('🟦 canceled:', conversation.canceled);
+            } else {
+                console.log('🟦 ❌ Conversa NÃO encontrada');
+            }
             
             if (!conversation || conversation.canceled || !conversation.waiting_for_response) {
                 addLog('WEBHOOK_NOT_WAITING', `Não aguardando resposta`, { phoneKey });
+                console.log('🟦 Não está aguardando resposta ou cancelada\n');
                 return res.json({ success: true });
             }
+            
+            console.log('🟦 ✅✅✅ RESPOSTA VÁLIDA! Avançando conversa...');
             
             addLog('CLIENT_REPLY', `Resposta recebida`, { phoneKey, text: messageText.substring(0, 50) });
             
@@ -1175,6 +1339,9 @@ app.post('/webhook/evolution', async (req, res) => {
             
             await advanceConversation(phoneKey, messageText, 'reply');
             
+            console.log('🟦 ✅✅✅ Conversa avançada com sucesso!');
+            console.log('🟦🟦🟦 FIM WEBHOOK EVOLUTION\n');
+            
             res.json({ success: true });
             
         } finally {
@@ -1182,6 +1349,8 @@ app.post('/webhook/evolution', async (req, res) => {
         }
         
     } catch (error) {
+        console.log('🟦 ❌ ERRO:', error.message);
+        console.log('🟦 Stack:', error.stack);
         addLog('EVOLUTION_ERROR', error.message);
         releaseWebhookLock(phoneKey);
         res.status(500).json({ success: false, error: error.message });
