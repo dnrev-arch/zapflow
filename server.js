@@ -1281,7 +1281,8 @@ app.post('/webhook/evolution', async (req, res) => {
         console.log('🟦 fromMe:', fromMe);
         console.log('🟦 messageText:', messageText.substring(0, 50));
         
-        const incomingPhone = remoteJid.replace('@s.whatsapp.net', '');
+        // 🔥 CORREÇÃO: Remove QUALQUER sufixo (@s.whatsapp.net, @lid, @g.us, etc)
+        const incomingPhone = remoteJid.split('@')[0];
         const phoneKey = extractPhoneKey(incomingPhone);
         
         console.log('🟦 incomingPhone:', incomingPhone);
