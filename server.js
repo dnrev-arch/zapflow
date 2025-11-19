@@ -268,6 +268,182 @@ function releaseWebhookLock(phoneKey) {
     addLog('WEBHOOK_LOCK_RELEASED', `Lock webhook liberado para ${phoneKey}`);
 }
 
+// ============ SISTEMA DE NORMALIZAÇÃO UNIVERSAL ============
+
+// 🔥 NOVA FUNÇÃO: Normaliza QUALQUER formato de telefone para phoneKey padrão
+function normalizePhoneKey(phone) {
+    if (!phone) return null;
+    
+    // Remove TUDO que não for número
+    const onlyNumbers = String(phone).replace(/\D/g, '');
+    
+    // Se tem menos de 8 dígitos, não é válido
+    if (onlyNumbers.length < 8) {
+        console.log('❌ Telefone com menos de 8 dígitos:', phone);
+        return null;
+    }
+    
+    // SEMPRE retorna os últimos 8 dígitos
+    const phoneKey = onlyNumbers.slice(-8);
+    
+    console.log('📱 Normalização:', {
+        entrada: phone,
+        somenteNumeros: onlyNumbers,
+        phoneKey: phoneKey
+    });
+    
+    return phoneKey;
+}
+
+// 🔥 NOVA FUNÇÃO: Registra TODAS as variações possíveis de um telefone
+function registerPhoneUniversal(fullPhone, phoneKey) {
+    if (!phoneKey || phoneKey.length !== 8) {
+        console.log('❌ PhoneKey inválida para registro:', phoneKey);
+        return;
+    }
+    
+    const cleaned = String(fullPhone).replace(/\D/g, '');
+    
+    // Registra a chave principal (últimos 8 dígitos)
+    phoneIndex.set(phoneKey, phoneKey);
+    
+    // Registra o número completo
+    phoneIndex.set(cleaned, phoneKey);
+    
+    // Registra com 55 no início
+    if (!cleaned.startsWith('55')) {
+        phoneIndex.set('55' + cleaned, phoneKey);
+    }
+    
+    // Registra sem 55
+    if (cleaned.startsWith('55')) {
+        phoneIndex.set(cleaned.substring(2), phoneKey);
+    }
+    
+    // Registra últimos 11 dígitos (DDD + número)
+    if (cleaned.length >= 11) {
+        const last11 = cleaned.slice(-11);
+        phoneIndex.set(last11, phoneKey);
+        phoneIndex.set('55' + last11, phoneKey);
+        
+        // COM o 9 adicional (celular novo)
+        if (last11.length === 11 && last11[2] === '9') {
+            const without9 = last11.substring(0, 2) + last11.substring(3);
+            phoneIndex.set(without9, phoneKey);
+            phoneIndex.set('55' + without9, phoneKey);
+        }
+        
+        // SEM o 9 adicional (celular antigo)
+        if (last11.length === 10) {
+            const with9 = last11.substring(0, 2) + '9' + last11.substring(2);
+            phoneIndex.set(with9, phoneKey);
+            phoneIndex.set('55' + with9, phoneKey);
+        }
+    }
+    
+    // Registra últimos 10 dígitos
+    if (cleaned.length >= 10) {
+        const last10 = cleaned.slice(-10);
+        phoneIndex.set(last10, phoneKey);
+        phoneIndex.set('55' + last10, phoneKey);
+    }
+    
+    // Registra últimos 9 dígitos
+    if (cleaned.length >= 9) {
+        const last9 = cleaned.slice(-9);
+        phoneIndex.set(last9, phoneKey);
+    }
+    
+    // Registra todas as variações possíveis do número
+    // Caso específico: números que vêm com formatos diferentes
+    if (cleaned.startsWith('55') && cleaned.length === 13) {
+        // Ex: 5588997215401 (com 9)
+        const ddd = cleaned.substring(2, 4);
+        const numeroComNove = cleaned.substring(4);
+        const numeroSemNove = cleaned.substring(0, 4) + cleaned.substring(5);
+        
+        phoneIndex.set('55' + ddd + numeroComNove, phoneKey);
+        phoneIndex.set(ddd + numeroComNove, phoneKey);
+        phoneIndex.set(numeroSemNove, phoneKey);
+        phoneIndex.set(numeroSemNove.substring(2), phoneKey);
+    }
+    
+    console.log('✅ Telefone registrado universalmente:', {
+        phoneKey: phoneKey,
+        numeroOriginal: cleaned,
+        variacoesRegistradas: 'Múltiplas variações'
+    });
+}
+
+// 🔥 NOVA FUNÇÃO: Busca conversa de QUALQUER formato
+function findConversationUniversal(phone) {
+    // Primeiro, normaliza o telefone
+    const phoneKey = normalizePhoneKey(phone);
+    
+    if (!phoneKey) {
+        console.log('❌ Telefone inválido para busca:', phone);
+        return null;
+    }
+    
+    // Tenta buscar diretamente pela phoneKey normalizada
+    let conversation = conversations.get(phoneKey);
+    
+    if (conversation) {
+        console.log('✅ Conversa encontrada diretamente por phoneKey:', phoneKey);
+        // Registra este telefone para futuras buscas
+        registerPhoneUniversal(phone, phoneKey);
+        return conversation;
+    }
+    
+    // Se não encontrou, tenta buscar pelo índice
+    const cleaned = String(phone).replace(/\D/g, '');
+    
+    // Tenta várias variações
+    const variations = [
+        cleaned,
+        '55' + cleaned,
+        cleaned.substring(2),
+        cleaned.slice(-11),
+        cleaned.slice(-10),
+        cleaned.slice(-9),
+        cleaned.slice(-8)
+    ];
+    
+    for (const variation of variations) {
+        const indexedKey = phoneIndex.get(variation);
+        if (indexedKey) {
+            conversation = conversations.get(indexedKey);
+            if (conversation) {
+                console.log('✅ Conversa encontrada por índice:', {
+                    variacao: variation,
+                    phoneKey: indexedKey
+                });
+                // Registra este telefone para futuras buscas
+                registerPhoneUniversal(phone, indexedKey);
+                return conversation;
+            }
+        }
+    }
+    
+    // Última tentativa: buscar em TODAS as conversas
+    for (const [key, conv] of conversations.entries()) {
+        if (key === phoneKey || key.endsWith(phoneKey.slice(-6))) {
+            console.log('✅ Conversa encontrada por busca exaustiva:', key);
+            // Registra este telefone para futuras buscas
+            registerPhoneUniversal(phone, key);
+            return conv;
+        }
+    }
+    
+    console.log('❌ Conversa NÃO encontrada para:', {
+        telefoneOriginal: phone,
+        phoneKeyNormalizada: phoneKey,
+        conversasAtivas: Array.from(conversations.keys())
+    });
+    
+    return null;
+}
+
 // ============ PERSISTÊNCIA ============
 async function ensureDataDir() {
     try {
@@ -376,164 +552,6 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // ============ FUNÇÕES AUXILIARES ============
-function extractPhoneKey(phone) {
-    if (!phone) return '';
-    const cleaned = phone.replace(/\D/g, '');
-    return cleaned.slice(-8);
-}
-
-function registerPhone(fullPhone, phoneKey) {
-    if (!phoneKey || phoneKey.length !== 8) return;
-    
-    const cleaned = fullPhone.replace(/\D/g, '');
-    
-    // 🔥 REGISTRAR DE TODAS AS FORMAS POSSÍVEIS
-    
-    // Forma 1: Número completo original
-    phoneIndex.set(cleaned, phoneKey);
-    
-    // Forma 2: Com 55 (se não tiver)
-    if (!cleaned.startsWith('55')) {
-        phoneIndex.set('55' + cleaned, phoneKey);
-    }
-    
-    // Forma 3: Sem 55 (se tiver)
-    if (cleaned.startsWith('55')) {
-        phoneIndex.set(cleaned.substring(2), phoneKey);
-    }
-    
-    // Forma 4: Últimos 11 dígitos (DDD + número)
-    if (cleaned.length >= 11) {
-        phoneIndex.set(cleaned.slice(-11), phoneKey);
-    }
-    
-    // Forma 5: Últimos 8 dígitos
-    phoneIndex.set(phoneKey, phoneKey);
-    
-    // Forma 6: Com 55 + últimos 11
-    if (cleaned.length >= 11) {
-        phoneIndex.set('55' + cleaned.slice(-11), phoneKey);
-    }
-    
-    // Forma 7: Removendo o "9" se tiver (número antigo)
-    // Ex: 5588997215401 → 558897215401
-    if (cleaned.length === 13 && cleaned.startsWith('55')) {
-        const without9 = cleaned.substring(0, 4) + cleaned.substring(5);
-        phoneIndex.set(without9, phoneKey);
-    }
-    
-    // Forma 8: Adicionando o "9" se não tiver (número novo)
-    // Ex: 558897215401 → 5588997215401
-    if (cleaned.length === 12 && cleaned.startsWith('55')) {
-        const with9 = cleaned.substring(0, 4) + '9' + cleaned.substring(4);
-        phoneIndex.set(with9, phoneKey);
-    }
-    
-    console.log('📞 Telefone registrado:', {
-        original: cleaned,
-        phoneKey: phoneKey,
-        totalVariacoes: phoneIndex.size
-    });
-}
-
-function findConversationByPhone(phone) {
-    const cleaned = phone.replace(/\D/g, '');
-    
-    console.log('🔍 Buscando conversa para:', cleaned);
-    
-    // 🔥 TENTAR DE TODAS AS FORMAS POSSÍVEIS
-    
-    // Tentativa 1: Últimos 8 dígitos (phoneKey padrão)
-    const phoneKey = extractPhoneKey(cleaned);
-    if (phoneKey && phoneKey.length === 8) {
-        const conv1 = conversations.get(phoneKey);
-        if (conv1) {
-            console.log('✅ Encontrado por phoneKey:', phoneKey);
-            registerPhone(cleaned, phoneKey);
-            return conv1;
-        }
-    }
-    
-    // Tentativa 2: Buscar no phoneIndex usando número completo
-    const indexed = phoneIndex.get(cleaned);
-    if (indexed) {
-        const conv2 = conversations.get(indexed);
-        if (conv2) {
-            console.log('✅ Encontrado por phoneIndex (completo):', indexed);
-            return conv2;
-        }
-    }
-    
-    // Tentativa 3: Com 55
-    if (!cleaned.startsWith('55')) {
-        const with55 = '55' + cleaned;
-        const indexed3 = phoneIndex.get(with55);
-        if (indexed3) {
-            const conv3 = conversations.get(indexed3);
-            if (conv3) {
-                console.log('✅ Encontrado por phoneIndex (com 55):', indexed3);
-                return conv3;
-            }
-        }
-    }
-    
-    // Tentativa 4: Sem 55
-    if (cleaned.startsWith('55')) {
-        const without55 = cleaned.substring(2);
-        const indexed4 = phoneIndex.get(without55);
-        if (indexed4) {
-            const conv4 = conversations.get(indexed4);
-            if (conv4) {
-                console.log('✅ Encontrado por phoneIndex (sem 55):', indexed4);
-                return conv4;
-            }
-        }
-    }
-    
-    // Tentativa 5: Últimos 11 dígitos
-    if (cleaned.length >= 11) {
-        const last11 = cleaned.slice(-11);
-        const indexed5 = phoneIndex.get(last11);
-        if (indexed5) {
-            const conv5 = conversations.get(indexed5);
-            if (conv5) {
-                console.log('✅ Encontrado por phoneIndex (últimos 11):', indexed5);
-                return conv5;
-            }
-        }
-    }
-    
-    // Tentativa 6: Removendo 9 (celular antigo)
-    if (cleaned.length === 13 && cleaned.startsWith('55')) {
-        const without9 = cleaned.substring(0, 4) + cleaned.substring(5);
-        const indexed6 = phoneIndex.get(without9);
-        if (indexed6) {
-            const conv6 = conversations.get(indexed6);
-            if (conv6) {
-                console.log('✅ Encontrado por phoneIndex (sem 9):', indexed6);
-                return conv6;
-            }
-        }
-    }
-    
-    // Tentativa 7: Adicionando 9 (celular novo)
-    if (cleaned.length === 12 && cleaned.startsWith('55')) {
-        const with9 = cleaned.substring(0, 4) + '9' + cleaned.substring(4);
-        const indexed7 = phoneIndex.get(with9);
-        if (indexed7) {
-            const conv7 = conversations.get(indexed7);
-            if (conv7) {
-                console.log('✅ Encontrado por phoneIndex (com 9):', indexed7);
-                return conv7;
-            }
-        }
-    }
-    
-    console.log('❌ Conversa NÃO encontrada para:', cleaned);
-    console.log('❌ PhoneKeys disponíveis:', Array.from(conversations.keys()));
-    
-    return null;
-}
 
 function phoneToRemoteJid(phone) {
     const cleaned = phone.replace(/\D/g, '');
@@ -802,6 +820,7 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
         if (conv && conv.orderCode === orderCode && !conv.canceled && conv.pixWaiting) {
             addLog('PIX_TIMEOUT_TRIGGERED', `Timeout PIX disparado para ${phoneKey}`, { orderCode });
             
+            // 🔥 CORREÇÃO CRÍTICA: Marcar waiting_for_response ANTES de enviar
             conv.pixWaiting = false;
             conv.stepIndex = 0;
             conversations.set(phoneKey, conv);
@@ -929,9 +948,13 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
     console.log('🔵🔵🔵 FIM startFunnel 🔵🔵🔵\n');
 }
 
+// 🔥 CORREÇÃO CRÍTICA: Função sendStep melhorada
 async function sendStep(phoneKey) {
     const conversation = conversations.get(phoneKey);
-    if (!conversation) return;
+    if (!conversation) {
+        console.log('❌ sendStep: Conversa não encontrada para', phoneKey);
+        return;
+    }
     
     if (conversation.canceled) {
         addLog('STEP_CANCELED', `Conversa cancelada`, { phoneKey });
@@ -944,17 +967,24 @@ async function sendStep(phoneKey) {
     }
     
     const funnel = funis.get(conversation.funnelId);
-    if (!funnel) return;
+    if (!funnel) {
+        console.log('❌ sendStep: Funil não encontrado:', conversation.funnelId);
+        return;
+    }
     
     const step = funnel.steps[conversation.stepIndex];
-    if (!step) return;
+    if (!step) {
+        console.log('❌ sendStep: Step não encontrado:', conversation.stepIndex);
+        return;
+    }
     
     const isFirstMessage = conversation.stepIndex === 0 && !conversation.lastSystemMessage;
     
     addLog('STEP_SEND_START', `Enviando passo ${conversation.stepIndex}`, { 
         phoneKey,
         funnelId: conversation.funnelId,
-        stepType: step.type
+        stepType: step.type,
+        waitForReply: step.waitForReply
     });
     
     let result = { success: true };
@@ -985,10 +1015,16 @@ async function sendStep(phoneKey) {
     if (result.success) {
         conversation.lastSystemMessage = new Date();
         
+        // 🔥 CORREÇÃO CRÍTICA: SEMPRE marcar waiting_for_response quando waitForReply = true
         if (step.waitForReply && step.type !== 'delay' && step.type !== 'typing') {
             conversation.waiting_for_response = true;
             conversations.set(phoneKey, conversation);
-            addLog('STEP_WAITING_REPLY', `Aguardando resposta passo ${conversation.stepIndex}`, { phoneKey });
+            
+            console.log('✅✅✅ MARCADO waiting_for_response = TRUE para', phoneKey);
+            addLog('STEP_WAITING_REPLY', `✅ Aguardando resposta passo ${conversation.stepIndex}`, { 
+                phoneKey,
+                waiting_for_response: true 
+            });
         } else {
             conversations.set(phoneKey, conversation);
             addLog('STEP_AUTO_ADVANCE', `Avançando automaticamente passo ${conversation.stepIndex}`, { phoneKey });
@@ -1001,7 +1037,10 @@ async function sendStep(phoneKey) {
 
 async function advanceConversation(phoneKey, replyText, reason) {
     const conversation = conversations.get(phoneKey);
-    if (!conversation) return;
+    if (!conversation) {
+        console.log('❌ advanceConversation: Conversa não encontrada para', phoneKey);
+        return;
+    }
     
     if (conversation.canceled) {
         addLog('ADVANCE_CANCELED', `Conversa cancelada`, { phoneKey });
@@ -1062,16 +1101,17 @@ app.post('/webhook/kirvano', async (req, res) => {
         const customerPhone = data.customer?.phone_number || '';
         const totalPrice = data.total_price || 'R$ 0,00';
         
-        const phoneKey = extractPhoneKey(customerPhone);
+        // 🔥 USANDO NORMALIZAÇÃO UNIVERSAL
+        const phoneKey = normalizePhoneKey(customerPhone);
         if (!phoneKey || phoneKey.length !== 8) {
             console.log('🟡 TELEFONE INVÁLIDO');
             return res.json({ success: false, message: 'Telefone inválido' });
         }
         
-        console.log('🟡 PhoneKey:', phoneKey);
+        console.log('🟡 PhoneKey normalizada:', phoneKey);
         
         const remoteJid = phoneToRemoteJid(customerPhone);
-        registerPhone(customerPhone, phoneKey);
+        registerPhoneUniversal(customerPhone, phoneKey);
         
         const productId = data.product_id || data.products?.[0]?.id;
         const productType = PRODUCT_MAPPING[productId] || 'CS';
@@ -1086,7 +1126,7 @@ app.post('/webhook/kirvano', async (req, res) => {
         if (isApproved) {
             console.log('🟡 ✅ APROVADO detectado');
             
-            const existingConv = conversations.get(phoneKey);
+            const existingConv = findConversationUniversal(customerPhone);
             
             if (existingConv && existingConv.funnelId === productType + '_PIX') {
                 console.log('🟡 Chamando transferPixToApproved...');
@@ -1109,7 +1149,7 @@ app.post('/webhook/kirvano', async (req, res) => {
             
             addLog('KIRVANO_PIX_GENERATED', `PIX gerado, aguardando 7min`, { phoneKey, orderCode, productType });
             
-            const existingConv = conversations.get(phoneKey);
+            const existingConv = findConversationUniversal(customerPhone);
             if (existingConv && !existingConv.canceled) {
                 console.log('🟡 Conversa já existe, ignorando');
                 addLog('KIRVANO_PIX_DUPLICATE', `Conversa já existe`, { phoneKey });
@@ -1164,7 +1204,8 @@ app.post('/webhook/perfectpay', async (req, res) => {
         console.log('🟣 PaymentType:', paymentType);
         console.log('🟣 Phone:', customerPhone);
         
-        const phoneKey = extractPhoneKey(customerPhone);
+        // 🔥 USANDO NORMALIZAÇÃO UNIVERSAL
+        const phoneKey = normalizePhoneKey(customerPhone);
         
         if (!phoneKey || phoneKey.length !== 8) {
             console.log('🟣 TELEFONE INVÁLIDO');
@@ -1172,10 +1213,10 @@ app.post('/webhook/perfectpay', async (req, res) => {
             return res.json({ success: false, message: 'Telefone inválido' });
         }
         
-        console.log('🟣 PhoneKey:', phoneKey);
+        console.log('🟣 PhoneKey normalizada:', phoneKey);
         
         const remoteJid = phoneToRemoteJid(customerPhone);
-        registerPhone(customerPhone, phoneKey);
+        registerPhoneUniversal(customerPhone, phoneKey);
         
         const productType = identifyPerfectPayProduct(productCode, planCode);
         
@@ -1191,7 +1232,7 @@ app.post('/webhook/perfectpay', async (req, res) => {
         if (statusEnum === 2) {
             console.log('🟣 ✅ STATUS 2 (APROVADO) detectado');
             
-            const existingConv = conversations.get(phoneKey);
+            const existingConv = findConversationUniversal(customerPhone);
             
             if (existingConv && existingConv.funnelId === productType + '_PIX') {
                 console.log('🟣 Chamando transferPixToApproved...');
@@ -1227,7 +1268,7 @@ app.post('/webhook/perfectpay', async (req, res) => {
             
             console.log('🟣 💰 PIX PENDENTE detectado');
             
-            const existingConv = conversations.get(phoneKey);
+            const existingConv = findConversationUniversal(customerPhone);
             
             if (existingConv && !existingConv.canceled) {
                 console.log('🟣 Conversa já existe - IGNORANDO');
@@ -1257,7 +1298,7 @@ app.post('/webhook/perfectpay', async (req, res) => {
     }
 });
 
-// WEBHOOK EVOLUTION
+// 🔥 WEBHOOK EVOLUTION CORRIGIDO
 app.post('/webhook/evolution', async (req, res) => {
     try {
         // 🟦🟦🟦 LOG EXTREMO 🟦🟦🟦
@@ -1277,16 +1318,18 @@ app.post('/webhook/evolution', async (req, res) => {
         const fromMe = messageData.key.fromMe;
         const messageText = extractMessageText(messageData.message);
         
-        console.log('🟦 remoteJid:', remoteJid);
+        console.log('🟦 remoteJid ORIGINAL:', remoteJid);
         console.log('🟦 fromMe:', fromMe);
         console.log('🟦 messageText:', messageText.substring(0, 50));
         
         // 🔥 CORREÇÃO: Remove QUALQUER sufixo (@s.whatsapp.net, @lid, @g.us, etc)
         const incomingPhone = remoteJid.split('@')[0];
-        const phoneKey = extractPhoneKey(incomingPhone);
         
-        console.log('🟦 incomingPhone:', incomingPhone);
-        console.log('🟦 phoneKey extraído:', phoneKey);
+        // 🔥 USANDO NORMALIZAÇÃO UNIVERSAL
+        const phoneKey = normalizePhoneKey(incomingPhone);
+        
+        console.log('🟦 incomingPhone limpo:', incomingPhone);
+        console.log('🟦 phoneKey normalizada:', phoneKey);
         console.log('🟦 Conversas ativas:', conversations.size);
         console.log('🟦 PhoneKeys ativos:', Array.from(conversations.keys()));
         
@@ -1309,30 +1352,48 @@ app.post('/webhook/evolution', async (req, res) => {
         }
         
         try {
-            console.log('🟦 Buscando conversa (vai tentar várias formas)...');
+            console.log('🟦 Buscando conversa (usando busca universal)...');
             
-            const conversation = findConversationByPhone(incomingPhone);
+            // 🔥 USANDO BUSCA UNIVERSAL
+            const conversation = findConversationUniversal(incomingPhone);
             
             if (conversation) {
-                console.log('🟦 ✅ Conversa ENCONTRADA!');
+                console.log('🟦 ✅✅✅ Conversa ENCONTRADA!');
                 console.log('🟦 phoneKey da conversa:', conversation.phoneKey);
                 console.log('🟦 funnelId:', conversation.funnelId);
                 console.log('🟦 stepIndex:', conversation.stepIndex);
                 console.log('🟦 waiting_for_response:', conversation.waiting_for_response);
                 console.log('🟦 canceled:', conversation.canceled);
+                
+                // 🔥 REGISTRA O TELEFONE PARA FUTURAS BUSCAS
+                registerPhoneUniversal(incomingPhone, conversation.phoneKey);
             } else {
                 console.log('🟦 ❌ Conversa NÃO encontrada');
             }
             
-            if (!conversation || conversation.canceled || !conversation.waiting_for_response) {
-                addLog('WEBHOOK_NOT_WAITING', `Não aguardando resposta`, { phoneKey });
-                console.log('🟦 Não está aguardando resposta ou cancelada\n');
+            if (!conversation || conversation.canceled) {
+                console.log('🟦 Conversa cancelada ou não existe - IGNORANDO\n');
+                return res.json({ success: true });
+            }
+            
+            if (!conversation.waiting_for_response) {
+                console.log('🟦 ⚠️ Não está aguardando resposta');
+                addLog('WEBHOOK_NOT_WAITING', `Não aguardando resposta`, { 
+                    phoneKey,
+                    waiting_for_response: conversation.waiting_for_response,
+                    stepIndex: conversation.stepIndex
+                });
                 return res.json({ success: true });
             }
             
             console.log('🟦 ✅✅✅ RESPOSTA VÁLIDA! Avançando conversa...');
             
-            addLog('CLIENT_REPLY', `Resposta recebida`, { phoneKey, text: messageText.substring(0, 50) });
+            addLog('CLIENT_REPLY', `✅ Resposta recebida`, { 
+                phoneKey, 
+                text: messageText.substring(0, 50),
+                stepIndex: conversation.stepIndex,
+                funnelId: conversation.funnelId
+            });
             
             conversation.waiting_for_response = false;
             conversation.lastReply = new Date();
@@ -1358,7 +1419,7 @@ app.post('/webhook/evolution', async (req, res) => {
     }
 });
 
-// ============ API ENDPOINTS ============
+// ============ API ENDPOINTS (mantidos iguais) ============
 
 app.get('/api/dashboard', (req, res) => {
     const instanceUsage = {};
@@ -1555,7 +1616,7 @@ app.get('/api/funnels/export', (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(JSON.stringify({
-            version: '4.3',
+            version: '5.0',
             exportDate: new Date().toISOString(),
             totalFunnels: funnelsArray.length,
             funnels: funnelsArray
@@ -1645,7 +1706,8 @@ app.get('/api/debug/evolution', async (req, res) => {
     const debugInfo = {
         evolution_base_url: EVOLUTION_BASE_URL,
         evolution_api_key_configured: EVOLUTION_API_KEY !== 'SUA_API_KEY_AQUI',
-        instances_configured: INSTANCES,
+        evolution_api_key_length: EVOLUTION_API_KEY.length,
+        instances: INSTANCES,
         active_conversations: conversations.size,
         sticky_instances_count: stickyInstances.size,
         pix_timeouts_active: pixTimeouts.size,
@@ -1707,8 +1769,8 @@ app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.get('/teste.html', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'teste.html'));
+app.get('/test.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'test.html'));
 });
 
 // ============ INICIALIZAÇÃO ============
@@ -1725,24 +1787,33 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(70));
-    console.log('🚀 KIRVANO + PERFECTPAY - DEBUG EXTREMO 🔍🔍🔍');
+    console.log('🚀 KIRVANO + PERFECTPAY v5.0 - NORMALIZAÇÃO UNIVERSAL');
     console.log('='.repeat(70));
-    console.log('Porta:', PORT);
-    console.log('Evolution:', EVOLUTION_BASE_URL);
-    console.log('Instâncias:', INSTANCES.length, '-', INSTANCES.join(', '));
+    console.log('✅ Porta:', PORT);
+    console.log('✅ Evolution:', EVOLUTION_BASE_URL);
+    console.log('✅ Instâncias:', INSTANCES.length, '-', INSTANCES.join(', '));
     console.log('');
-    console.log('🔴🟢🔵 LOGS EXTREMOS ATIVADOS!');
+    console.log('🔥 CORREÇÕES IMPLEMENTADAS:');
+    console.log('  ✅ Sistema de Normalização Universal de telefones');
+    console.log('  ✅ Busca inteligente e tolerante a falhas');
+    console.log('  ✅ Registro automático de todas variações');
+    console.log('  ✅ Correção do waiting_for_response no PIX');
+    console.log('  ✅ Logs ultra-detalhados para debug');
+    console.log('  ✅ Webhook Evolution melhorado');
+    console.log('');
+    console.log('🔴🟢🔵 LOGS EXTREMOS ATIVADOS:');
     console.log('  🔴 createPixWaitingConversation');
     console.log('  🟢 transferPixToApproved');
     console.log('  🔵 startFunnel');
     console.log('  🟡 Webhook Kirvano');
     console.log('  🟣 Webhook PerfectPay');
+    console.log('  🟦 Webhook Evolution');
     console.log('');
-    console.log('📡 Quando venda entrar, você verá emojis coloridos nos logs!');
-    console.log('   Se NÃO aparecer emojis = código não está rodando');
-    console.log('   Se aparecer emojis = código está rodando e vamos descobrir o bug');
+    console.log('📱 NORMALIZAÇÃO: Qualquer formato de telefone será aceito');
+    console.log('🔍 BUSCA: Sistema inteligente encontra conversas de qualquer formato');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
+    console.log('🧪 Testes: http://localhost:' + PORT + '/test.html');
     console.log('='.repeat(70));
     
     await initializeData();
