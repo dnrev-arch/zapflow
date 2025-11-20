@@ -820,12 +820,29 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
         if (conv && conv.orderCode === orderCode && !conv.canceled && conv.pixWaiting) {
             addLog('PIX_TIMEOUT_TRIGGERED', `Timeout PIX disparado para ${phoneKey}`, { orderCode });
             
-            // 🔥 CORREÇÃO CRÍTICA: Marcar waiting_for_response ANTES de enviar
+            // 🔥 CORREÇÃO CRÍTICA: Marcar pixWaiting como false ANTES de enviar
             conv.pixWaiting = false;
             conv.stepIndex = 0;
             conversations.set(phoneKey, conv);
             
+            // LOG DETALHADO DO ESTADO ANTES DE ENVIAR
+            addLog('PIX_TIMEOUT_STATE', '⏰ Estado antes de enviar primeiro áudio', {
+                phoneKey: phoneKey,
+                stepIndex: 0,
+                pixWaiting: false,
+                waiting_for_response: false,
+                funnelId: conv.funnelId
+            });
+            
             await sendStep(phoneKey);
+            
+            // VERIFICAÇÃO PÓS-ENVIO
+            const convAfter = conversations.get(phoneKey);
+            addLog('PIX_TIMEOUT_AFTER_SEND', '⏰ Estado APÓS enviar primeiro áudio', {
+                phoneKey: phoneKey,
+                waiting_for_response: convAfter ? convAfter.waiting_for_response : null,
+                stepIndex: convAfter ? convAfter.stepIndex : null
+            });
         }
         pixTimeouts.delete(phoneKey);
     }, PIX_TIMEOUT);
@@ -1305,12 +1322,33 @@ app.post('/webhook/evolution', async (req, res) => {
         console.log('\n🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦');
         console.log('🟦 WEBHOOK EVOLUTION RECEBIDO!!!');
         console.log('🟦 Timestamp:', Date.now());
+        console.log('🟦 Body completo:', JSON.stringify(req.body).substring(0, 500));
+        
+        // LOG EXTREMO DE DEBUG
+        addLog('EVOLUTION_WEBHOOK_RAW', '🟦 Webhook Evolution recebido', {
+            bodySize: JSON.stringify(req.body).length,
+            bodyKeys: Object.keys(req.body),
+            timestamp: new Date().toISOString()
+        });
         
         const data = req.body;
+        
+        // Verificar se é um evento válido
+        const event = data.event;
+        console.log('🟦 Event type:', event);
+        
+        // Se não for mensagem, ignorar
+        if (event && !event.includes('message')) {
+            console.log('🟦 Não é evento de mensagem - IGNORANDO');
+            addLog('EVOLUTION_NOT_MESSAGE', 'Evento não é mensagem: ' + event);
+            return res.json({ success: true });
+        }
+        
         const messageData = data.data;
         
         if (!messageData || !messageData.key) {
             console.log('🟦 Sem messageData ou key - IGNORANDO\n');
+            addLog('EVOLUTION_NO_DATA', 'Sem messageData ou key');
             return res.json({ success: true });
         }
         
@@ -1321,6 +1359,14 @@ app.post('/webhook/evolution', async (req, res) => {
         console.log('🟦 remoteJid ORIGINAL:', remoteJid);
         console.log('🟦 fromMe:', fromMe);
         console.log('🟦 messageText:', messageText.substring(0, 50));
+        
+        // LOG DETALHADO
+        addLog('EVOLUTION_MESSAGE_RECEIVED', '🟦 Mensagem recebida', {
+            remoteJid: remoteJid,
+            fromMe: fromMe,
+            text: messageText.substring(0, 100),
+            event: event
+        });
         
         // 🔥 CORREÇÃO: Remove QUALQUER sufixo (@s.whatsapp.net, @lid, @g.us, etc)
         const incomingPhone = remoteJid.split('@')[0];
@@ -1333,13 +1379,26 @@ app.post('/webhook/evolution', async (req, res) => {
         console.log('🟦 Conversas ativas:', conversations.size);
         console.log('🟦 PhoneKeys ativos:', Array.from(conversations.keys()));
         
+        // LOG DETALHADO DE NORMALIZAÇÃO
+        addLog('EVOLUTION_PHONE_NORMALIZED', '🟦 Telefone normalizado', {
+            original: remoteJid,
+            cleaned: incomingPhone,
+            phoneKey: phoneKey,
+            activeConversations: Array.from(conversations.keys())
+        });
+        
         if (!phoneKey || phoneKey.length !== 8) {
             console.log('🟦 phoneKey inválido - IGNORANDO\n');
+            addLog('EVOLUTION_INVALID_PHONE', 'PhoneKey inválido', { 
+                phone: incomingPhone, 
+                phoneKey: phoneKey 
+            });
             return res.json({ success: true });
         }
         
         if (fromMe) {
             console.log('🟦 Mensagem fromMe - IGNORANDO\n');
+            addLog('EVOLUTION_FROM_ME', 'Mensagem própria ignorada');
             return res.json({ success: true });
         }
         
@@ -1348,6 +1407,7 @@ app.post('/webhook/evolution', async (req, res) => {
         const hasLock = await acquireWebhookLock(phoneKey);
         if (!hasLock) {
             console.log('🟦 Lock timeout\n');
+            addLog('EVOLUTION_LOCK_TIMEOUT', 'Timeout no lock', { phoneKey });
             return res.json({ success: false, message: 'Lock timeout' });
         }
         
@@ -1357,6 +1417,16 @@ app.post('/webhook/evolution', async (req, res) => {
             // 🔥 USANDO BUSCA UNIVERSAL
             const conversation = findConversationUniversal(incomingPhone);
             
+            // LOG DO RESULTADO DA BUSCA
+            addLog('EVOLUTION_SEARCH_RESULT', '🟦 Resultado da busca', {
+                found: conversation ? true : false,
+                phoneKey: phoneKey,
+                conversationKey: conversation ? conversation.phoneKey : null,
+                funnelId: conversation ? conversation.funnelId : null,
+                stepIndex: conversation ? conversation.stepIndex : null,
+                waiting: conversation ? conversation.waiting_for_response : null
+            });
+            
             if (conversation) {
                 console.log('🟦 ✅✅✅ Conversa ENCONTRADA!');
                 console.log('🟦 phoneKey da conversa:', conversation.phoneKey);
@@ -1364,35 +1434,61 @@ app.post('/webhook/evolution', async (req, res) => {
                 console.log('🟦 stepIndex:', conversation.stepIndex);
                 console.log('🟦 waiting_for_response:', conversation.waiting_for_response);
                 console.log('🟦 canceled:', conversation.canceled);
+                console.log('🟦 pixWaiting:', conversation.pixWaiting);
                 
                 // 🔥 REGISTRA O TELEFONE PARA FUTURAS BUSCAS
                 registerPhoneUniversal(incomingPhone, conversation.phoneKey);
             } else {
                 console.log('🟦 ❌ Conversa NÃO encontrada');
+                console.log('🟦 Conversas disponíveis:', Array.from(conversations.keys()));
+                
+                // LOG DETALHADO QUANDO NÃO ENCONTRA
+                addLog('EVOLUTION_CONVERSATION_NOT_FOUND', '❌ Conversa não encontrada', {
+                    phoneKey: phoneKey,
+                    incomingPhone: incomingPhone,
+                    availableKeys: Array.from(conversations.keys()),
+                    messageText: messageText.substring(0, 50)
+                });
             }
             
             if (!conversation || conversation.canceled) {
                 console.log('🟦 Conversa cancelada ou não existe - IGNORANDO\n');
+                addLog('EVOLUTION_IGNORED', 'Conversa cancelada ou inexistente', { 
+                    phoneKey,
+                    exists: conversation ? true : false,
+                    canceled: conversation ? conversation.canceled : null
+                });
+                return res.json({ success: true });
+            }
+            
+            if (conversation.pixWaiting) {
+                console.log('🟦 ⏳ Conversa aguardando timeout PIX - IGNORANDO');
+                addLog('EVOLUTION_PIX_WAITING', 'Ainda aguardando timeout PIX', {
+                    phoneKey,
+                    pixWaiting: true
+                });
                 return res.json({ success: true });
             }
             
             if (!conversation.waiting_for_response) {
                 console.log('🟦 ⚠️ Não está aguardando resposta');
-                addLog('WEBHOOK_NOT_WAITING', `Não aguardando resposta`, { 
+                addLog('WEBHOOK_NOT_WAITING', `⚠️ Não aguardando resposta`, { 
                     phoneKey,
                     waiting_for_response: conversation.waiting_for_response,
-                    stepIndex: conversation.stepIndex
+                    stepIndex: conversation.stepIndex,
+                    funnelId: conversation.funnelId
                 });
                 return res.json({ success: true });
             }
             
             console.log('🟦 ✅✅✅ RESPOSTA VÁLIDA! Avançando conversa...');
             
-            addLog('CLIENT_REPLY', `✅ Resposta recebida`, { 
+            addLog('CLIENT_REPLY', `✅✅✅ RESPOSTA RECEBIDA E PROCESSADA`, { 
                 phoneKey, 
                 text: messageText.substring(0, 50),
                 stepIndex: conversation.stepIndex,
-                funnelId: conversation.funnelId
+                funnelId: conversation.funnelId,
+                willAdvance: true
             });
             
             conversation.waiting_for_response = false;
@@ -1402,6 +1498,11 @@ app.post('/webhook/evolution', async (req, res) => {
             await advanceConversation(phoneKey, messageText, 'reply');
             
             console.log('🟦 ✅✅✅ Conversa avançada com sucesso!');
+            addLog('EVOLUTION_ADVANCE_SUCCESS', '✅ Conversa avançada', {
+                phoneKey,
+                newStepIndex: conversation.stepIndex + 1
+            });
+            
             console.log('🟦🟦🟦 FIM WEBHOOK EVOLUTION\n');
             
             res.json({ success: true });
