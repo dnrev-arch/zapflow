@@ -44,451 +44,39 @@ function identifyPerfectPayProduct(productCode, planCode) {
     return 'CS';
 }
 
+// ✨ Função auxiliar para descrição de status PerfectPay
+function getStatusDescription(statusEnum) {
+    const descriptions = {
+        0: 'none',
+        1: 'pending (PIX/Boleto pendente)',
+        2: 'approved (venda aprovada)',
+        3: 'in_process (em revisão)',
+        4: 'in_mediation (em moderação)',
+        5: 'rejected (rejeitado)',
+        6: 'cancelled (cancelado)',
+        7: 'refunded (devolvido)',
+        8: 'authorized (autorizada)',
+        9: 'charged_back (chargeback solicitado)',
+        10: 'completed (30 dias após aprovação)',
+        11: 'checkout_error (erro no checkout)',
+        12: 'precheckout (abandono)',
+        13: 'expired (expirado)'
+    };
+    return descriptions[statusEnum] || 'unknown';
+}
+
 // Instâncias Evolution
 const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'D11', 'D13'];
 
 // ============ ARMAZENAMENTO EM MEMÓRIA ============
 let conversations = new Map();
-let phoneIndex = new Map();          // Índice principal
-let phoneVariations = new Map();     // Índice reverso ULTRA robusto
+let phoneIndex = new Map();
 let stickyInstances = new Map();
 let pixTimeouts = new Map();
 let webhookLocks = new Map();
 let logs = [];
 let funis = new Map();
 let lastSuccessfulInstanceIndex = -1;
-
-// ============ SISTEMA DE NORMALIZAÇÃO UNIVERSAL ULTRA ROBUSTO ============
-
-// 🔥 FUNÇÃO 1: Normaliza QUALQUER formato para phoneKey (últimos 8 dígitos)
-function normalizePhoneKey(phone) {
-    if (!phone) return null;
-    
-    // Remove TUDO que não for número (incluindo sufixos @s.whatsapp.net, @lid, @g.us)
-    let cleaned = String(phone)
-        .split('@')[0]  // Remove sufixos
-        .replace(/\D/g, '');  // Remove tudo que não é número
-    
-    if (cleaned.length < 8) {
-        console.log('❌ Telefone muito curto:', phone);
-        return null;
-    }
-    
-    // SEMPRE retorna últimos 8 dígitos como chave primária
-    const phoneKey = cleaned.slice(-8);
-    
-    console.log('📱 Normalização:', {
-        entrada: phone,
-        limpo: cleaned,
-        phoneKey: phoneKey
-    });
-    
-    return phoneKey;
-}
-
-// 🔥 FUNÇÃO 2: Gera TODAS as variações possíveis de um número
-function generateAllPhoneVariations(fullPhone) {
-    const cleaned = String(fullPhone)
-        .split('@')[0]
-        .replace(/\D/g, '');
-    
-    if (cleaned.length < 8) return [];
-    
-    const variations = new Set();
-    
-    // 1. Número completo limpo
-    variations.add(cleaned);
-    
-    // 2. Com 55 no início
-    if (!cleaned.startsWith('55')) {
-        variations.add('55' + cleaned);
-    }
-    
-    // 3. Sem 55 no início (se tiver)
-    if (cleaned.startsWith('55') && cleaned.length > 2) {
-        variations.add(cleaned.substring(2));
-    }
-    
-    // 4. Últimos N dígitos (8, 9, 10, 11, 12, 13)
-    for (let i = 8; i <= Math.min(13, cleaned.length); i++) {
-        const lastN = cleaned.slice(-i);
-        variations.add(lastN);
-        
-        // Com 55
-        if (!lastN.startsWith('55')) {
-            variations.add('55' + lastN);
-        }
-    }
-    
-    // 5. Variações com/sem 9 do celular (formato novo vs antigo)
-    if (cleaned.length >= 11) {
-        // Pega DDD (2 dígitos) e resto
-        const ddd = cleaned.slice(-11, -9);  // 2 dígitos do DDD
-        const numero = cleaned.slice(-9);     // 9XXXXXXXX ou 8XXXXXXXX
-        
-        // Se tem o 9 adicional
-        if (numero.length === 9 && numero[0] === '9') {
-            // Cria versão SEM o 9 (formato antigo)
-            const semNove = ddd + numero.substring(1);
-            variations.add(semNove);
-            variations.add('55' + semNove);
-            
-            // Todas as variações de tamanho
-            for (let i = 8; i <= semNove.length; i++) {
-                variations.add(semNove.slice(-i));
-            }
-        }
-        
-        // Se NÃO tem o 9 adicional
-        if (numero.length === 8 || (numero.length === 9 && numero[0] !== '9')) {
-            // Cria versão COM o 9 (formato novo)
-            const comNove = ddd + '9' + numero;
-            variations.add(comNove);
-            variations.add('55' + comNove);
-            
-            // Todas as variações de tamanho
-            for (let i = 8; i <= comNove.length; i++) {
-                variations.add(comNove.slice(-i));
-            }
-        }
-    }
-    
-    // 6. Caso especial: 12 dígitos sem o 9 (5588XXXXXXXX)
-    if (cleaned.length === 12 && cleaned.startsWith('55')) {
-        const ddd = cleaned.substring(2, 4);
-        const numero = cleaned.substring(4);
-        const comNove = '55' + ddd + '9' + numero;
-        
-        variations.add(comNove);
-        variations.add(comNove.substring(2));
-        
-        for (let i = 8; i <= comNove.length; i++) {
-            variations.add(comNove.slice(-i));
-        }
-    }
-    
-    // 7. Caso especial: 13 dígitos com o 9 (5588997215401)
-    if (cleaned.length === 13 && cleaned.startsWith('55')) {
-        const ddd = cleaned.substring(2, 4);
-        const numeroComNove = cleaned.substring(4);
-        const numeroSemNove = cleaned.substring(0, 4) + cleaned.substring(5);
-        
-        variations.add(numeroSemNove);
-        variations.add(numeroSemNove.substring(2));
-        
-        for (let i = 8; i <= numeroSemNove.length; i++) {
-            variations.add(numeroSemNove.slice(-i));
-        }
-    }
-    
-    // Remove variações muito curtas ou inválidas
-    const validVariations = Array.from(variations).filter(v => v && v.length >= 8);
-    
-    console.log(`🔢 Geradas ${validVariations.length} variações para ${cleaned}`);
-    
-    return validVariations;
-}
-
-// 🔥 FUNÇÃO 3: Registra TODAS as variações de um telefone
-function registerPhoneUniversal(fullPhone, phoneKey) {
-    if (!phoneKey || phoneKey.length !== 8) {
-        console.log('❌ PhoneKey inválida para registro:', phoneKey);
-        return;
-    }
-    
-    const variations = generateAllPhoneVariations(fullPhone);
-    
-    // Registra TODAS as variações apontando para a mesma phoneKey
-    let registeredCount = 0;
-    
-    variations.forEach(variation => {
-        if (variation && variation.length >= 8) {
-            phoneIndex.set(variation, phoneKey);
-            phoneVariations.set(variation, phoneKey);
-            registeredCount++;
-        }
-    });
-    
-    // Também registra com sufixos comuns do WhatsApp
-    const suffixes = ['@s.whatsapp.net', '@lid', '@g.us'];
-    const cleaned = String(fullPhone).split('@')[0].replace(/\D/g, '');
-    
-    suffixes.forEach(suffix => {
-        phoneIndex.set(cleaned + suffix, phoneKey);
-        phoneVariations.set(cleaned + suffix, phoneKey);
-        
-        variations.forEach(variation => {
-            phoneIndex.set(variation + suffix, phoneKey);
-            phoneVariations.set(variation + suffix, phoneKey);
-            registeredCount += 2;
-        });
-    });
-    
-    console.log(`✅ Telefone ${phoneKey} registrado com ${registeredCount} variações`);
-    
-    addLog('PHONE_REGISTERED_ULTRA', `📱 ${registeredCount} variações registradas`, {
-        phoneKey,
-        total: registeredCount,
-        sample: variations.slice(0, 5)
-    });
-}
-
-// 🔥 FUNÇÃO 4: Busca conversa de QUALQUER formato (4 níveis de busca)
-function findConversationUniversal(phone) {
-    const phoneKey = normalizePhoneKey(phone);
-    
-    if (!phoneKey) {
-        console.log('❌ Telefone inválido para busca:', phone);
-        return null;
-    }
-    
-    console.log('🔍 Iniciando busca UNIVERSAL para:', phoneKey);
-    
-    // ===== NÍVEL 1: Busca direta pela phoneKey =====
-    let conversation = conversations.get(phoneKey);
-    if (conversation) {
-        console.log('✅ NÍVEL 1: Encontrado (busca direta):', phoneKey);
-        registerPhoneUniversal(phone, phoneKey);
-        return conversation;
-    }
-    
-    // ===== NÍVEL 2: Busca pelo índice usando todas as variações =====
-    const variations = generateAllPhoneVariations(phone);
-    console.log(`🔍 NÍVEL 2: Testando ${variations.length} variações...`);
-    
-    for (const variation of variations) {
-        // Testa no índice principal
-        const indexedKey = phoneIndex.get(variation);
-        if (indexedKey) {
-            conversation = conversations.get(indexedKey);
-            if (conversation) {
-                console.log('✅ NÍVEL 2: Encontrado via índice:', indexedKey, '←', variation);
-                registerPhoneUniversal(phone, indexedKey);
-                return conversation;
-            }
-        }
-        
-        // Testa no índice reverso
-        const varKey = phoneVariations.get(variation);
-        if (varKey) {
-            conversation = conversations.get(varKey);
-            if (conversation) {
-                console.log('✅ NÍVEL 2: Encontrado via variações:', varKey, '←', variation);
-                registerPhoneUniversal(phone, varKey);
-                return conversation;
-            }
-        }
-    }
-    
-    // ===== NÍVEL 3: Busca com sufixos WhatsApp =====
-    console.log('🔍 NÍVEL 3: Testando sufixos WhatsApp...');
-    const suffixes = ['@s.whatsapp.net', '@lid', '@g.us', ''];
-    
-    for (const suffix of suffixes) {
-        for (const variation of variations) {
-            const withSuffix = variation + suffix;
-            
-            const indexedKey = phoneIndex.get(withSuffix) || phoneVariations.get(withSuffix);
-            if (indexedKey) {
-                conversation = conversations.get(indexedKey);
-                if (conversation) {
-                    console.log('✅ NÍVEL 3: Encontrado com sufixo:', indexedKey, '←', withSuffix);
-                    registerPhoneUniversal(phone, indexedKey);
-                    return conversation;
-                }
-            }
-        }
-    }
-    
-    // ===== NÍVEL 4: Busca exaustiva em TODAS as conversas =====
-    console.log('🔍 NÍVEL 4: Busca exaustiva em', conversations.size, 'conversas...');
-    
-    for (const [key, conv] of conversations.entries()) {
-        // Match 1: Últimos 8 dígitos exatos
-        if (key === phoneKey) {
-            console.log('✅ NÍVEL 4: Match exato 8 dígitos:', key);
-            registerPhoneUniversal(phone, key);
-            return conv;
-        }
-        
-        // Match 2: Últimos 7 dígitos (muito provável ser o mesmo)
-        if (key.slice(-7) === phoneKey.slice(-7)) {
-            console.log('✅ NÍVEL 4: Match últimos 7 dígitos:', key);
-            registerPhoneUniversal(phone, key);
-            return conv;
-        }
-        
-        // Match 3: Compara remoteJid da conversa
-        if (conv.remoteJid) {
-            const convPhoneKey = normalizePhoneKey(conv.remoteJid);
-            if (convPhoneKey === phoneKey) {
-                console.log('✅ NÍVEL 4: Match via remoteJid:', key);
-                registerPhoneUniversal(phone, key);
-                return conv;
-            }
-            
-            // Match 4: RemoteJid últimos 7 dígitos
-            if (convPhoneKey && convPhoneKey.slice(-7) === phoneKey.slice(-7)) {
-                console.log('✅ NÍVEL 4: Match remoteJid últimos 7:', key);
-                registerPhoneUniversal(phone, key);
-                return conv;
-            }
-        }
-    }
-    
-    // NÃO ENCONTRADO após 4 níveis de busca
-    console.log('❌ Conversa NÃO encontrada após busca ULTRA completa');
-    console.log('📊 Debug completo:', {
-        phoneKey,
-        phoneOriginal: phone,
-        variaçõesTentadas: variations.length,
-        conversasAtivas: conversations.size,
-        primeiras5Conversas: Array.from(conversations.keys()).slice(0, 5),
-        primeiras5Variações: variations.slice(0, 5)
-    });
-    
-    addLog('CONVERSATION_NOT_FOUND_ULTRA', `❌ Não encontrado após 4 níveis`, {
-        phoneKey,
-        variations: variations.length,
-        activeConversations: conversations.size
-    });
-    
-    return null;
-}
-
-// ============ SISTEMA DE LOCK ============
-async function acquireWebhookLock(phoneKey, timeout = 10000) {
-    const startTime = Date.now();
-    
-    while (webhookLocks.get(phoneKey)) {
-        if (Date.now() - startTime > timeout) {
-            addLog('WEBHOOK_LOCK_TIMEOUT', `Timeout esperando lock webhook para ${phoneKey}`);
-            return false;
-        }
-        await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    
-    webhookLocks.set(phoneKey, true);
-    addLog('WEBHOOK_LOCK_ACQUIRED', `Lock webhook adquirido para ${phoneKey}`);
-    return true;
-}
-
-function releaseWebhookLock(phoneKey) {
-    webhookLocks.delete(phoneKey);
-    addLog('WEBHOOK_LOCK_RELEASED', `Lock webhook liberado para ${phoneKey}`);
-}
-
-// ============ PERSISTÊNCIA ============
-async function ensureDataDir() {
-    try {
-        await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-    } catch (error) {
-        console.log('Pasta data já existe');
-    }
-}
-
-async function saveFunnelsToFile() {
-    try {
-        await ensureDataDir();
-        const funnelsArray = Array.from(funis.values());
-        await fs.writeFile(DATA_FILE, JSON.stringify(funnelsArray, null, 2));
-        addLog('DATA_SAVE', 'Funis salvos: ' + funnelsArray.length);
-    } catch (error) {
-        addLog('DATA_SAVE_ERROR', 'Erro ao salvar funis: ' + error.message);
-    }
-}
-
-async function loadFunnelsFromFile() {
-    try {
-        const data = await fs.readFile(DATA_FILE, 'utf8');
-        const funnelsArray = JSON.parse(data);
-        
-        funis.clear();
-        funnelsArray.forEach(funnel => {
-            if (funnel.id.startsWith('CS_') || funnel.id.startsWith('FAB_')) {
-                funis.set(funnel.id, funnel);
-            }
-        });
-        
-        addLog('DATA_LOAD', 'Funis carregados: ' + funis.size);
-        return true;
-    } catch (error) {
-        addLog('DATA_LOAD_ERROR', 'Usando funis padrão');
-        return false;
-    }
-}
-
-async function saveConversationsToFile() {
-    try {
-        await ensureDataDir();
-        const conversationsArray = Array.from(conversations.entries()).map(([key, value]) => ({
-            phoneKey: key,
-            ...value,
-            createdAt: value.createdAt.toISOString(),
-            lastSystemMessage: value.lastSystemMessage ? value.lastSystemMessage.toISOString() : null,
-            lastReply: value.lastReply ? value.lastReply.toISOString() : null,
-            completedAt: value.completedAt ? value.completedAt.toISOString() : null,
-            canceledAt: value.canceledAt ? value.canceledAt.toISOString() : null
-        }));
-        
-        await fs.writeFile(CONVERSATIONS_FILE, JSON.stringify({
-            conversations: conversationsArray,
-            phoneIndex: Array.from(phoneIndex.entries()),
-            phoneVariations: Array.from(phoneVariations.entries()),
-            stickyInstances: Array.from(stickyInstances.entries())
-        }, null, 2));
-        
-        addLog('DATA_SAVE', 'Conversas salvas: ' + conversationsArray.length);
-    } catch (error) {
-        addLog('DATA_SAVE_ERROR', 'Erro ao salvar conversas: ' + error.message);
-    }
-}
-
-async function loadConversationsFromFile() {
-    try {
-        const data = await fs.readFile(CONVERSATIONS_FILE, 'utf8');
-        const parsed = JSON.parse(data);
-        
-        conversations.clear();
-        parsed.conversations.forEach(conv => {
-            conversations.set(conv.phoneKey, {
-                ...conv,
-                createdAt: new Date(conv.createdAt),
-                lastSystemMessage: conv.lastSystemMessage ? new Date(conv.lastSystemMessage) : null,
-                lastReply: conv.lastReply ? new Date(conv.lastReply) : null,
-                completedAt: conv.completedAt ? new Date(conv.completedAt) : null,
-                canceledAt: conv.canceledAt ? new Date(conv.canceledAt) : null
-            });
-        });
-        
-        phoneIndex.clear();
-        if (parsed.phoneIndex) {
-            parsed.phoneIndex.forEach(([key, value]) => phoneIndex.set(key, value));
-        }
-        
-        phoneVariations.clear();
-        if (parsed.phoneVariations) {
-            parsed.phoneVariations.forEach(([key, value]) => phoneVariations.set(key, value));
-        }
-        
-        stickyInstances.clear();
-        if (parsed.stickyInstances) {
-            parsed.stickyInstances.forEach(([key, value]) => stickyInstances.set(key, value));
-        }
-        
-        addLog('DATA_LOAD', 'Conversas carregadas: ' + parsed.conversations.length);
-        addLog('DATA_LOAD', 'Índices carregados: ' + phoneIndex.size + ' phoneIndex, ' + phoneVariations.size + ' variations');
-        return true;
-    } catch (error) {
-        addLog('DATA_LOAD_ERROR', 'Nenhuma conversa anterior');
-        return false;
-    }
-}
-
-setInterval(async () => {
-    await saveFunnelsToFile();
-    await saveConversationsToFile();
-}, 30000);
 
 // ============ FUNIS PADRÃO ============
 const defaultFunnels = {
@@ -658,6 +246,305 @@ const defaultFunnels = {
     }
 };
 
+// ============ SISTEMA DE LOCK ============
+async function acquireWebhookLock(phoneKey, timeout = 10000) {
+    const startTime = Date.now();
+    
+    while (webhookLocks.get(phoneKey)) {
+        if (Date.now() - startTime > timeout) {
+            addLog('WEBHOOK_LOCK_TIMEOUT', `Timeout esperando lock webhook para ${phoneKey}`);
+            return false;
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    webhookLocks.set(phoneKey, true);
+    addLog('WEBHOOK_LOCK_ACQUIRED', `Lock webhook adquirido para ${phoneKey}`);
+    return true;
+}
+
+function releaseWebhookLock(phoneKey) {
+    webhookLocks.delete(phoneKey);
+    addLog('WEBHOOK_LOCK_RELEASED', `Lock webhook liberado para ${phoneKey}`);
+}
+
+// ============ SISTEMA DE NORMALIZAÇÃO UNIVERSAL ============
+
+// 🔥 NOVA FUNÇÃO: Normaliza QUALQUER formato de telefone para phoneKey padrão
+function normalizePhoneKey(phone) {
+    if (!phone) return null;
+    
+    // Remove TUDO que não for número
+    const onlyNumbers = String(phone).replace(/\D/g, '');
+    
+    // Se tem menos de 8 dígitos, não é válido
+    if (onlyNumbers.length < 8) {
+        console.log('❌ Telefone com menos de 8 dígitos:', phone);
+        return null;
+    }
+    
+    // SEMPRE retorna os últimos 8 dígitos
+    const phoneKey = onlyNumbers.slice(-8);
+    
+    console.log('📱 Normalização:', {
+        entrada: phone,
+        somenteNumeros: onlyNumbers,
+        phoneKey: phoneKey
+    });
+    
+    return phoneKey;
+}
+
+// 🔥 NOVA FUNÇÃO: Registra TODAS as variações possíveis de um telefone
+function registerPhoneUniversal(fullPhone, phoneKey) {
+    if (!phoneKey || phoneKey.length !== 8) {
+        console.log('❌ PhoneKey inválida para registro:', phoneKey);
+        return;
+    }
+    
+    const cleaned = String(fullPhone).replace(/\D/g, '');
+    
+    // Registra a chave principal (últimos 8 dígitos)
+    phoneIndex.set(phoneKey, phoneKey);
+    
+    // Registra o número completo
+    phoneIndex.set(cleaned, phoneKey);
+    
+    // Registra com 55 no início
+    if (!cleaned.startsWith('55')) {
+        phoneIndex.set('55' + cleaned, phoneKey);
+    }
+    
+    // Registra sem 55
+    if (cleaned.startsWith('55')) {
+        phoneIndex.set(cleaned.substring(2), phoneKey);
+    }
+    
+    // Registra últimos 11 dígitos (DDD + número)
+    if (cleaned.length >= 11) {
+        const last11 = cleaned.slice(-11);
+        phoneIndex.set(last11, phoneKey);
+        phoneIndex.set('55' + last11, phoneKey);
+        
+        // COM o 9 adicional (celular novo)
+        if (last11.length === 11 && last11[2] === '9') {
+            const without9 = last11.substring(0, 2) + last11.substring(3);
+            phoneIndex.set(without9, phoneKey);
+            phoneIndex.set('55' + without9, phoneKey);
+        }
+        
+        // SEM o 9 adicional (celular antigo)
+        if (last11.length === 10) {
+            const with9 = last11.substring(0, 2) + '9' + last11.substring(2);
+            phoneIndex.set(with9, phoneKey);
+            phoneIndex.set('55' + with9, phoneKey);
+        }
+    }
+    
+    // Registra últimos 10 dígitos
+    if (cleaned.length >= 10) {
+        const last10 = cleaned.slice(-10);
+        phoneIndex.set(last10, phoneKey);
+        phoneIndex.set('55' + last10, phoneKey);
+    }
+    
+    // Registra últimos 9 dígitos
+    if (cleaned.length >= 9) {
+        const last9 = cleaned.slice(-9);
+        phoneIndex.set(last9, phoneKey);
+    }
+    
+    // Registra todas as variações possíveis do número
+    // Caso específico: números que vêm com formatos diferentes
+    if (cleaned.startsWith('55') && cleaned.length === 13) {
+        // Ex: 5588997215401 (com 9)
+        const ddd = cleaned.substring(2, 4);
+        const numeroComNove = cleaned.substring(4);
+        const numeroSemNove = cleaned.substring(0, 4) + cleaned.substring(5);
+        
+        phoneIndex.set('55' + ddd + numeroComNove, phoneKey);
+        phoneIndex.set(ddd + numeroComNove, phoneKey);
+        phoneIndex.set(numeroSemNove, phoneKey);
+        phoneIndex.set(numeroSemNove.substring(2), phoneKey);
+    }
+    
+    console.log('✅ Telefone registrado universalmente:', {
+        phoneKey: phoneKey,
+        numeroOriginal: cleaned,
+        variacoesRegistradas: 'Múltiplas variações'
+    });
+}
+
+// 🔥 NOVA FUNÇÃO: Busca conversa de QUALQUER formato
+function findConversationUniversal(phone) {
+    // Primeiro, normaliza o telefone
+    const phoneKey = normalizePhoneKey(phone);
+    
+    if (!phoneKey) {
+        console.log('❌ Telefone inválido para busca:', phone);
+        return null;
+    }
+    
+    // Tenta buscar diretamente pela phoneKey normalizada
+    let conversation = conversations.get(phoneKey);
+    
+    if (conversation) {
+        console.log('✅ Conversa encontrada diretamente por phoneKey:', phoneKey);
+        // Registra este telefone para futuras buscas
+        registerPhoneUniversal(phone, phoneKey);
+        return conversation;
+    }
+    
+    // Se não encontrou, tenta buscar pelo índice
+    const cleaned = String(phone).replace(/\D/g, '');
+    
+    // Tenta várias variações
+    const variations = [
+        cleaned,
+        '55' + cleaned,
+        cleaned.substring(2),
+        cleaned.slice(-11),
+        cleaned.slice(-10),
+        cleaned.slice(-9),
+        cleaned.slice(-8)
+    ];
+    
+    for (const variation of variations) {
+        const indexedKey = phoneIndex.get(variation);
+        if (indexedKey) {
+            conversation = conversations.get(indexedKey);
+            if (conversation) {
+                console.log('✅ Conversa encontrada por índice:', {
+                    variacao: variation,
+                    phoneKey: indexedKey
+                });
+                // Registra este telefone para futuras buscas
+                registerPhoneUniversal(phone, indexedKey);
+                return conversation;
+            }
+        }
+    }
+    
+    // Última tentativa: buscar em TODAS as conversas
+    for (const [key, conv] of conversations.entries()) {
+        if (key === phoneKey || key.endsWith(phoneKey.slice(-6))) {
+            console.log('✅ Conversa encontrada por busca exaustiva:', key);
+            // Registra este telefone para futuras buscas
+            registerPhoneUniversal(phone, key);
+            return conv;
+        }
+    }
+    
+    console.log('❌ Conversa NÃO encontrada para:', {
+        telefoneOriginal: phone,
+        phoneKeyNormalizada: phoneKey,
+        conversasAtivas: Array.from(conversations.keys())
+    });
+    
+    return null;
+}
+
+// ============ PERSISTÊNCIA ============
+async function ensureDataDir() {
+    try {
+        await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+    } catch (error) {
+        console.log('Pasta data já existe');
+    }
+}
+
+async function saveFunnelsToFile() {
+    try {
+        await ensureDataDir();
+        const funnelsArray = Array.from(funis.values());
+        await fs.writeFile(DATA_FILE, JSON.stringify(funnelsArray, null, 2));
+        addLog('DATA_SAVE', 'Funis salvos: ' + funnelsArray.length);
+    } catch (error) {
+        addLog('DATA_SAVE_ERROR', 'Erro ao salvar funis: ' + error.message);
+    }
+}
+
+async function loadFunnelsFromFile() {
+    try {
+        const data = await fs.readFile(DATA_FILE, 'utf8');
+        const funnelsArray = JSON.parse(data);
+        
+        funis.clear();
+        funnelsArray.forEach(funnel => {
+            if (funnel.id.startsWith('CS_') || funnel.id.startsWith('FAB_')) {
+                funis.set(funnel.id, funnel);
+            }
+        });
+        
+        addLog('DATA_LOAD', 'Funis carregados: ' + funis.size);
+        return true;
+    } catch (error) {
+        addLog('DATA_LOAD_ERROR', 'Usando funis padrão');
+        return false;
+    }
+}
+
+async function saveConversationsToFile() {
+    try {
+        await ensureDataDir();
+        const conversationsArray = Array.from(conversations.entries()).map(([key, value]) => ({
+            phoneKey: key,
+            ...value,
+            createdAt: value.createdAt.toISOString(),
+            lastSystemMessage: value.lastSystemMessage ? value.lastSystemMessage.toISOString() : null,
+            lastReply: value.lastReply ? value.lastReply.toISOString() : null,
+            completedAt: value.completedAt ? value.completedAt.toISOString() : null,
+            canceledAt: value.canceledAt ? value.canceledAt.toISOString() : null
+        }));
+        
+        await fs.writeFile(CONVERSATIONS_FILE, JSON.stringify({
+            conversations: conversationsArray,
+            phoneIndex: Array.from(phoneIndex.entries()),
+            stickyInstances: Array.from(stickyInstances.entries())
+        }, null, 2));
+        
+        addLog('DATA_SAVE', 'Conversas salvas: ' + conversationsArray.length);
+    } catch (error) {
+        addLog('DATA_SAVE_ERROR', 'Erro ao salvar conversas: ' + error.message);
+    }
+}
+
+async function loadConversationsFromFile() {
+    try {
+        const data = await fs.readFile(CONVERSATIONS_FILE, 'utf8');
+        const parsed = JSON.parse(data);
+        
+        conversations.clear();
+        parsed.conversations.forEach(conv => {
+            conversations.set(conv.phoneKey, {
+                ...conv,
+                createdAt: new Date(conv.createdAt),
+                lastSystemMessage: conv.lastSystemMessage ? new Date(conv.lastSystemMessage) : null,
+                lastReply: conv.lastReply ? new Date(conv.lastReply) : null,
+                completedAt: conv.completedAt ? new Date(conv.completedAt) : null,
+                canceledAt: conv.canceledAt ? new Date(conv.canceledAt) : null
+            });
+        });
+        
+        phoneIndex.clear();
+        parsed.phoneIndex.forEach(([key, value]) => phoneIndex.set(key, value));
+        
+        stickyInstances.clear();
+        parsed.stickyInstances.forEach(([key, value]) => stickyInstances.set(key, value));
+        
+        addLog('DATA_LOAD', 'Conversas carregadas: ' + parsed.conversations.length);
+        return true;
+    } catch (error) {
+        addLog('DATA_LOAD_ERROR', 'Nenhuma conversa anterior');
+        return false;
+    }
+}
+
+setInterval(async () => {
+    await saveFunnelsToFile();
+    await saveConversationsToFile();
+}, 30000);
+
 Object.values(defaultFunnels).forEach(funnel => funis.set(funnel.id, funnel));
 
 // ============ MIDDLEWARES ============
@@ -824,7 +711,7 @@ async function sendAudio(remoteJid, audioUrl, instanceName) {
     }
 }
 
-// ============ ENVIO COM RETRY (MANTIDO IGUAL - FUNCIONA BEM) ============
+// ============ ENVIO COM RETRY ============
 async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFirstMessage = false) {
     let instancesToTry = [...INSTANCES];
     const stickyInstance = stickyInstances.get(phoneKey);
@@ -888,7 +775,17 @@ async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFir
 // ============ ORQUESTRAÇÃO ============
 
 async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, amount) {
-    console.log('🔴 createPixWaitingConversation:', phoneKey);
+    // 🔴🔴🔴 LOG EXTREMO 🔴🔴🔴
+    console.log('🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴');
+    console.log('🔴 createPixWaitingConversation CHAMADA!!!');
+    console.log('🔴 Timestamp:', Date.now());
+    console.log('🔴 phoneKey:', phoneKey);
+    console.log('🔴 orderCode:', orderCode);
+    console.log('🔴 productType:', productType);
+    console.log('🔴 Map size ANTES:', conversations.size);
+    console.log('🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴🔴');
+    
+    addLog('CREATE_PIX_EXTREMO', '🔴🔴🔴 FUNÇÃO CHAMADA', { phoneKey, orderCode, productType });
     
     const conversation = {
         phoneKey,
@@ -910,30 +807,63 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
     
     conversations.set(phoneKey, conversation);
     
-    // 🔥 REGISTRA TODAS AS VARIAÇÕES
-    registerPhoneUniversal(remoteJid, phoneKey);
+    console.log('🔴 Conversa adicionada ao Map');
+    console.log('🔴 Map size DEPOIS:', conversations.size);
+    console.log('🔴 Has phoneKey?', conversations.has(phoneKey));
     
     addLog('PIX_WAITING_CREATED', `PIX em espera para ${phoneKey}`, { orderCode, productType });
     
     const timeout = setTimeout(async () => {
+        console.log('⏰⏰⏰ TIMEOUT PIX DISPARADO para', phoneKey);
+        
         const conv = conversations.get(phoneKey);
         if (conv && conv.orderCode === orderCode && !conv.canceled && conv.pixWaiting) {
             addLog('PIX_TIMEOUT_TRIGGERED', `Timeout PIX disparado para ${phoneKey}`, { orderCode });
             
+            // 🔥 CORREÇÃO CRÍTICA: Marcar pixWaiting como false ANTES de enviar
             conv.pixWaiting = false;
             conv.stepIndex = 0;
             conversations.set(phoneKey, conv);
             
+            // LOG DETALHADO DO ESTADO ANTES DE ENVIAR
+            addLog('PIX_TIMEOUT_STATE', '⏰ Estado antes de enviar primeiro áudio', {
+                phoneKey: phoneKey,
+                stepIndex: 0,
+                pixWaiting: false,
+                waiting_for_response: false,
+                funnelId: conv.funnelId
+            });
+            
             await sendStep(phoneKey);
+            
+            // VERIFICAÇÃO PÓS-ENVIO
+            const convAfter = conversations.get(phoneKey);
+            addLog('PIX_TIMEOUT_AFTER_SEND', '⏰ Estado APÓS enviar primeiro áudio', {
+                phoneKey: phoneKey,
+                waiting_for_response: convAfter ? convAfter.waiting_for_response : null,
+                stepIndex: convAfter ? convAfter.stepIndex : null
+            });
         }
         pixTimeouts.delete(phoneKey);
     }, PIX_TIMEOUT);
     
     pixTimeouts.set(phoneKey, { timeout, orderCode, createdAt: new Date() });
+    
+    console.log('🔴 Timeout configurado:', PIX_TIMEOUT, 'ms');
+    console.log('🔴🔴🔴 FIM createPixWaitingConversation 🔴🔴🔴\n');
 }
 
 async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerName, productType, amount) {
-    console.log('🟢 transferPixToApproved:', phoneKey);
+    // 🟢🟢🟢 LOG EXTREMO 🟢🟢🟢
+    console.log('🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢');
+    console.log('🟢 transferPixToApproved CHAMADA!!!');
+    console.log('🟢 Timestamp:', Date.now());
+    console.log('🟢 phoneKey:', phoneKey);
+    console.log('🟢 orderCode:', orderCode);
+    console.log('🟢 Map size ANTES:', conversations.size);
+    console.log('🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢🟢');
+    
+    addLog('TRANSFER_PIX_EXTREMO', '🟢🟢🟢 FUNÇÃO CHAMADA', { phoneKey, orderCode });
     
     const pixConv = conversations.get(phoneKey);
     
@@ -948,6 +878,7 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
     if (pixTimeout) {
         clearTimeout(pixTimeout.timeout);
         pixTimeouts.delete(phoneKey);
+        addLog('PIX_TIMEOUT_CANCELED', `Timeout cancelado para ${phoneKey}`, { orderCode });
     }
     
     let startingStep = 0;
@@ -955,6 +886,8 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
     if (pixConv && pixConv.stepIndex >= 0) {
         startingStep = 3;
         addLog('TRANSFER_SKIP_SIMILAR', `Cliente já interagiu, começando passo 3`, { phoneKey });
+    } else {
+        addLog('TRANSFER_FROM_BEGINNING', `Cliente não interagiu, começando passo 0`, { phoneKey });
     }
     
     const approvedConv = {
@@ -972,21 +905,35 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
         lastReply: null,
         canceled: false,
         completed: false,
-        transferredFromPix: true
+        transferredFromPix: true,
+        previousFunnel: productType + '_PIX'
     };
     
     conversations.set(phoneKey, approvedConv);
     
-    // 🔥 REGISTRA TODAS AS VARIAÇÕES
-    registerPhoneUniversal(remoteJid, phoneKey);
+    console.log('🟢 Conversa transferida para APROVADA');
+    console.log('🟢 Map size DEPOIS:', conversations.size);
+    console.log('🟢 Has phoneKey?', conversations.has(phoneKey));
     
     addLog('TRANSFER_PIX_TO_APPROVED', `Transferido para APROVADA`, { phoneKey, startingStep, productType });
     
     await sendStep(phoneKey);
+    
+    console.log('🟢🟢🟢 FIM transferPixToApproved 🟢🟢🟢\n');
 }
 
 async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerName, productType, amount) {
-    console.log('🔵 startFunnel:', phoneKey, funnelId);
+    // 🔵🔵🔵 LOG EXTREMO 🔵🔵🔵
+    console.log('🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵');
+    console.log('🔵 startFunnel CHAMADA!!!');
+    console.log('🔵 Timestamp:', Date.now());
+    console.log('🔵 phoneKey:', phoneKey);
+    console.log('🔵 funnelId:', funnelId);
+    console.log('🔵 orderCode:', orderCode);
+    console.log('🔵 Map size ANTES:', conversations.size);
+    console.log('🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵🔵');
+    
+    addLog('START_FUNNEL_EXTREMO', '🔵🔵🔵 FUNÇÃO CHAMADA', { phoneKey, funnelId, orderCode });
     
     const conversation = {
         phoneKey,
@@ -1007,44 +954,77 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
     
     conversations.set(phoneKey, conversation);
     
-    // 🔥 REGISTRA TODAS AS VARIAÇÕES
-    registerPhoneUniversal(remoteJid, phoneKey);
+    console.log('🔵 Conversa criada');
+    console.log('🔵 Map size DEPOIS:', conversations.size);
+    console.log('🔵 Has phoneKey?', conversations.has(phoneKey));
     
     addLog('FUNNEL_START', `Iniciando ${funnelId} para ${phoneKey}`, { orderCode });
     
     await sendStep(phoneKey);
+    
+    console.log('🔵🔵🔵 FIM startFunnel 🔵🔵🔵\n');
 }
 
+// 🔥 CORREÇÃO CRÍTICA: Função sendStep melhorada
 async function sendStep(phoneKey) {
     const conversation = conversations.get(phoneKey);
-    if (!conversation || conversation.canceled || conversation.pixWaiting) return;
+    if (!conversation) {
+        console.log('❌ sendStep: Conversa não encontrada para', phoneKey);
+        return;
+    }
+    
+    if (conversation.canceled) {
+        addLog('STEP_CANCELED', `Conversa cancelada`, { phoneKey });
+        return;
+    }
+    
+    if (conversation.pixWaiting) {
+        addLog('STEP_PIX_WAITING', `Aguardando timeout PIX`, { phoneKey });
+        return;
+    }
     
     const funnel = funis.get(conversation.funnelId);
-    if (!funnel) return;
+    if (!funnel) {
+        console.log('❌ sendStep: Funil não encontrado:', conversation.funnelId);
+        return;
+    }
     
     const step = funnel.steps[conversation.stepIndex];
-    if (!step) return;
+    if (!step) {
+        console.log('❌ sendStep: Step não encontrado:', conversation.stepIndex);
+        return;
+    }
     
     const isFirstMessage = conversation.stepIndex === 0 && !conversation.lastSystemMessage;
     
     addLog('STEP_SEND_START', `Enviando passo ${conversation.stepIndex}`, { 
         phoneKey,
         funnelId: conversation.funnelId,
-        stepType: step.type
+        stepType: step.type,
+        waitForReply: step.waitForReply
     });
     
     let result = { success: true };
     
     if (step.delayBefore && step.delayBefore > 0) {
-        await new Promise(resolve => setTimeout(resolve, parseInt(step.delayBefore) * 1000));
+        const delaySeconds = parseInt(step.delayBefore);
+        addLog('STEP_DELAY_BEFORE', `Aguardando ${delaySeconds}s antes de enviar`, { phoneKey });
+        await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
     }
     
-    if (step.showTyping && step.type !== 'delay') {
+    if (step.showTyping && step.type !== 'delay' && step.type !== 'typing') {
+        addLog('STEP_SHOW_TYPING', `Mostrando "digitando..." por 3s`, { phoneKey });
         await new Promise(resolve => setTimeout(resolve, 3000));
     }
     
     if (step.type === 'delay') {
-        await new Promise(resolve => setTimeout(resolve, (step.delaySeconds || 10) * 1000));
+        const delaySeconds = step.delaySeconds || 10;
+        addLog('STEP_DELAY', `Delay de ${delaySeconds}s`, { phoneKey });
+        await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
+    } else if (step.type === 'typing') {
+        const typingSeconds = step.typingSeconds || 3;
+        addLog('STEP_TYPING', `Digitando ${typingSeconds}s`, { phoneKey });
+        await new Promise(resolve => setTimeout(resolve, typingSeconds * 1000));
     } else {
         result = await sendWithFallback(phoneKey, conversation.remoteJid, step.type, step.text, step.mediaUrl, isFirstMessage);
     }
@@ -1052,21 +1032,37 @@ async function sendStep(phoneKey) {
     if (result.success) {
         conversation.lastSystemMessage = new Date();
         
-        if (step.waitForReply && step.type !== 'delay') {
+        // 🔥 CORREÇÃO CRÍTICA: SEMPRE marcar waiting_for_response quando waitForReply = true
+        if (step.waitForReply && step.type !== 'delay' && step.type !== 'typing') {
             conversation.waiting_for_response = true;
             conversations.set(phoneKey, conversation);
-            console.log('✅ MARCADO waiting_for_response = TRUE');
-            addLog('STEP_WAITING_REPLY', `✅ Aguardando resposta passo ${conversation.stepIndex}`, { phoneKey });
+            
+            console.log('✅✅✅ MARCADO waiting_for_response = TRUE para', phoneKey);
+            addLog('STEP_WAITING_REPLY', `✅ Aguardando resposta passo ${conversation.stepIndex}`, { 
+                phoneKey,
+                waiting_for_response: true 
+            });
         } else {
             conversations.set(phoneKey, conversation);
+            addLog('STEP_AUTO_ADVANCE', `Avançando automaticamente passo ${conversation.stepIndex}`, { phoneKey });
             await advanceConversation(phoneKey, null, 'auto');
         }
+    } else {
+        addLog('STEP_FAILED', `Falha no envio`, { phoneKey, error: result.error });
     }
 }
 
 async function advanceConversation(phoneKey, replyText, reason) {
     const conversation = conversations.get(phoneKey);
-    if (!conversation || conversation.canceled) return;
+    if (!conversation) {
+        console.log('❌ advanceConversation: Conversa não encontrada para', phoneKey);
+        return;
+    }
+    
+    if (conversation.canceled) {
+        addLog('ADVANCE_CANCELED', `Conversa cancelada`, { phoneKey });
+        return;
+    }
     
     const funnel = funis.get(conversation.funnelId);
     if (!funnel) return;
@@ -1074,11 +1070,11 @@ async function advanceConversation(phoneKey, replyText, reason) {
     const nextStepIndex = conversation.stepIndex + 1;
     
     if (nextStepIndex >= funnel.steps.length) {
+        addLog('FUNNEL_END', `Funil ${conversation.funnelId} concluído`, { phoneKey });
         conversation.waiting_for_response = false;
         conversation.completed = true;
         conversation.completedAt = new Date();
         conversations.set(phoneKey, conversation);
-        addLog('FUNNEL_END', `Funil concluído`, { phoneKey });
         return;
     }
     
@@ -1097,12 +1093,24 @@ async function advanceConversation(phoneKey, replyText, reason) {
 
 // ============ WEBHOOKS ============
 
+// WEBHOOK KIRVANO
 app.post('/webhook/kirvano', async (req, res) => {
     try {
+        // 🟡🟡🟡 LOG EXTREMO 🟡🟡🟡
+        console.log('\n🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡');
+        console.log('🟡 WEBHOOK KIRVANO RECEBIDO!!!');
+        console.log('🟡 Timestamp:', Date.now());
+        console.log('🟡 Map size atual:', conversations.size);
+        console.log('🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡🟡');
+        
         const data = req.body;
         const event = String(data.event || '').toUpperCase();
         const status = String(data.status || data.payment_status || '').toUpperCase();
         const method = String(data.payment?.method || data.payment_method || '').toUpperCase();
+        
+        console.log('🟡 Event:', event);
+        console.log('🟡 Status:', status);
+        console.log('🟡 Method:', method);
         
         const saleId = data.sale_id || data.checkout_id;
         const orderCode = saleId || 'ORDER_' + Date.now();
@@ -1110,10 +1118,14 @@ app.post('/webhook/kirvano', async (req, res) => {
         const customerPhone = data.customer?.phone_number || '';
         const totalPrice = data.total_price || 'R$ 0,00';
         
+        // 🔥 USANDO NORMALIZAÇÃO UNIVERSAL
         const phoneKey = normalizePhoneKey(customerPhone);
         if (!phoneKey || phoneKey.length !== 8) {
+            console.log('🟡 TELEFONE INVÁLIDO');
             return res.json({ success: false, message: 'Telefone inválido' });
         }
+        
+        console.log('🟡 PhoneKey normalizada:', phoneKey);
         
         const remoteJid = phoneToRemoteJid(customerPhone);
         registerPhoneUniversal(customerPhone, phoneKey);
@@ -1121,42 +1133,76 @@ app.post('/webhook/kirvano', async (req, res) => {
         const productId = data.product_id || data.products?.[0]?.id;
         const productType = PRODUCT_MAPPING[productId] || 'CS';
         
+        console.log('🟡 ProductType:', productType);
+        
         addLog('KIRVANO_EVENT', `${event} - ${customerName}`, { orderCode, phoneKey, method, productType });
         
         const isApproved = event.includes('APPROVED') || event.includes('PAID') || status === 'APPROVED';
         const isPix = method.includes('PIX') || event.includes('PIX');
         
         if (isApproved) {
+            console.log('🟡 ✅ APROVADO detectado');
+            
             const existingConv = findConversationUniversal(customerPhone);
             
             if (existingConv && existingConv.funnelId === productType + '_PIX') {
+                console.log('🟡 Chamando transferPixToApproved...');
+                addLog('KIRVANO_PIX_TO_APPROVED', `Cliente pagou PIX`, { phoneKey, orderCode, productType });
                 await transferPixToApproved(phoneKey, remoteJid, orderCode, customerName, productType, totalPrice);
             } else {
+                console.log('🟡 Chamando startFunnel APROVADA...');
+                addLog('KIRVANO_DIRECT_APPROVED', `Pagamento aprovado direto`, { phoneKey, orderCode, productType });
+                
                 const pixTimeout = pixTimeouts.get(phoneKey);
                 if (pixTimeout) {
                     clearTimeout(pixTimeout.timeout);
                     pixTimeouts.delete(phoneKey);
                 }
+                
                 await startFunnel(phoneKey, remoteJid, productType + '_APROVADA', orderCode, customerName, productType, totalPrice);
             }
         } else if (isPix && event.includes('GENERATED')) {
+            console.log('🟡 💰 PIX GERADO detectado');
+            
+            addLog('KIRVANO_PIX_GENERATED', `PIX gerado, aguardando 7min`, { phoneKey, orderCode, productType });
+            
             const existingConv = findConversationUniversal(customerPhone);
             if (existingConv && !existingConv.canceled) {
+                console.log('🟡 Conversa já existe, ignorando');
+                addLog('KIRVANO_PIX_DUPLICATE', `Conversa já existe`, { phoneKey });
                 return res.json({ success: true, message: 'Conversa já existe' });
             }
+            
+            console.log('🟡 Chamando createPixWaitingConversation...');
             await createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, totalPrice);
         }
+        
+        console.log('🟡🟡🟡 FIM WEBHOOK KIRVANO 🟡🟡🟡\n');
         
         res.json({ success: true, phoneKey });
         
     } catch (error) {
+        console.log('🟡 ❌ ERRO no webhook Kirvano:', error.message);
         addLog('KIRVANO_ERROR', error.message);
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
+// ✨ WEBHOOK PERFECTPAY COM DEBUG ULTRA DETALHADO
 app.post('/webhook/perfectpay', async (req, res) => {
     try {
+        // 🟣🟣🟣 LOG EXTREMO 🟣🟣🟣
+        console.log('\n🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣');
+        console.log('🟣 WEBHOOK PERFECTPAY RECEBIDO!!!');
+        console.log('🟣 Timestamp:', Date.now());
+        console.log('🟣 Map size atual:', conversations.size);
+        console.log('🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣🟣');
+        
+        addLog('PERFECTPAY_WEBHOOK_RECEIVED', '🟣 Webhook recebido', {
+            timestamp: new Date().toISOString(),
+            bodySize: JSON.stringify(req.body).length
+        });
+        
         const data = req.body;
         
         const statusEnum = parseInt(data.sale_status_enum);
@@ -1171,19 +1217,29 @@ app.post('/webhook/perfectpay', async (req, res) => {
         const totalPrice = 'R$ ' + (saleAmount / 100).toFixed(2).replace('.', ',');
         const paymentType = parseInt(data.payment_type_enum || 0);
         
+        console.log('🟣 Status:', statusEnum);
+        console.log('🟣 PaymentType:', paymentType);
+        console.log('🟣 Phone:', customerPhone);
+        
+        // 🔥 USANDO NORMALIZAÇÃO UNIVERSAL
         const phoneKey = normalizePhoneKey(customerPhone);
         
         if (!phoneKey || phoneKey.length !== 8) {
+            console.log('🟣 TELEFONE INVÁLIDO');
             addLog('PERFECTPAY_INVALID_PHONE', 'Telefone inválido', { customerPhone, phoneKey });
             return res.json({ success: false, message: 'Telefone inválido' });
         }
+        
+        console.log('🟣 PhoneKey normalizada:', phoneKey);
         
         const remoteJid = phoneToRemoteJid(customerPhone);
         registerPhoneUniversal(customerPhone, phoneKey);
         
         const productType = identifyPerfectPayProduct(productCode, planCode);
         
-        addLog('PERFECTPAY_WEBHOOK', `Status ${statusEnum}`, { 
+        console.log('🟣 ProductType:', productType);
+        
+        addLog('PERFECTPAY_WEBHOOK_STATUS', `Status ${statusEnum}`, { 
             saleCode, 
             phoneKey, 
             productType,
@@ -1191,54 +1247,108 @@ app.post('/webhook/perfectpay', async (req, res) => {
         });
         
         if (statusEnum === 2) {
+            console.log('🟣 ✅ STATUS 2 (APROVADO) detectado');
+            
             const existingConv = findConversationUniversal(customerPhone);
             
             if (existingConv && existingConv.funnelId === productType + '_PIX') {
+                console.log('🟣 Chamando transferPixToApproved...');
+                addLog('PERFECTPAY_PIX_TO_APPROVED', 'Transferindo PIX → APROVADA', { phoneKey, saleCode });
                 await transferPixToApproved(phoneKey, remoteJid, saleCode, customerName, productType, totalPrice);
             } else {
+                console.log('🟣 Chamando startFunnel APROVADA...');
+                addLog('PERFECTPAY_DIRECT_APPROVED', 'Iniciando APROVADA direto', { phoneKey, saleCode });
+                
                 const pixTimeout = pixTimeouts.get(phoneKey);
                 if (pixTimeout) {
                     clearTimeout(pixTimeout.timeout);
                     pixTimeouts.delete(phoneKey);
                 }
+                
                 await startFunnel(phoneKey, remoteJid, productType + '_APROVADA', saleCode, customerName, productType, totalPrice);
             }
             
+            console.log('🟣🟣🟣 FIM WEBHOOK PERFECTPAY (APROVADO) 🟣🟣🟣\n');
+            
             res.json({ success: true, phoneKey, productType, action: 'approved' });
+            return;
         }
-        else if (statusEnum === 1 && paymentType !== 2) {
+        
+        else if (statusEnum === 1) {
+            console.log('🟣 ⏳ STATUS 1 (PENDENTE) detectado');
+            
+            if (paymentType === 2) {
+                console.log('🟣 Boleto detectado - IGNORANDO');
+                addLog('PERFECTPAY_BOLETO_IGNORED', 'Boleto ignorado', { phoneKey, saleCode });
+                return res.json({ success: true, message: 'Boleto ignorado' });
+            }
+            
+            console.log('🟣 💰 PIX PENDENTE detectado');
+            
             const existingConv = findConversationUniversal(customerPhone);
             
             if (existingConv && !existingConv.canceled) {
+                console.log('🟣 Conversa já existe - IGNORANDO');
+                addLog('PERFECTPAY_PIX_DUPLICATE', 'Conversa já existe', { phoneKey });
                 return res.json({ success: true, message: 'Conversa já existe' });
             }
             
+            console.log('🟣 Chamando createPixWaitingConversation...');
             await createPixWaitingConversation(phoneKey, remoteJid, saleCode, customerName, productType, totalPrice);
             
-            res.json({ success: true, phoneKey, productType, action: 'pix_waiting' });
+            console.log('🟣🟣🟣 FIM WEBHOOK PERFECTPAY (PIX PENDENTE) 🟣🟣🟣\n');
+            
+            res.json({ success: true, phoneKey, productType, action: 'pix_waiting_created' });
+            return;
         }
+        
         else {
+            console.log('🟣 Status outro:', statusEnum);
+            addLog('PERFECTPAY_STATUS_OTHER', `Status ${statusEnum}`, { phoneKey, saleCode });
             res.json({ success: true, phoneKey, productType, action: 'status_' + statusEnum });
         }
         
     } catch (error) {
-        addLog('PERFECTPAY_ERROR', error.message);
+        console.log('🟣 ❌ ERRO no webhook PerfectPay:', error.message);
+        addLog('PERFECTPAY_ERROR', 'Erro crítico', { error: error.message });
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
+// 🔥 WEBHOOK EVOLUTION CORRIGIDO
 app.post('/webhook/evolution', async (req, res) => {
     try {
-        const data = req.body;
-        const event = data.event;
+        // 🟦🟦🟦 LOG EXTREMO 🟦🟦🟦
+        console.log('\n🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦🟦');
+        console.log('🟦 WEBHOOK EVOLUTION RECEBIDO!!!');
+        console.log('🟦 Timestamp:', Date.now());
+        console.log('🟦 Body completo:', JSON.stringify(req.body).substring(0, 500));
         
+        // LOG EXTREMO DE DEBUG
+        addLog('EVOLUTION_WEBHOOK_RAW', '🟦 Webhook Evolution recebido', {
+            bodySize: JSON.stringify(req.body).length,
+            bodyKeys: Object.keys(req.body),
+            timestamp: new Date().toISOString()
+        });
+        
+        const data = req.body;
+        
+        // Verificar se é um evento válido
+        const event = data.event;
+        console.log('🟦 Event type:', event);
+        
+        // Se não for mensagem, ignorar
         if (event && !event.includes('message')) {
+            console.log('🟦 Não é evento de mensagem - IGNORANDO');
+            addLog('EVOLUTION_NOT_MESSAGE', 'Evento não é mensagem: ' + event);
             return res.json({ success: true });
         }
         
         const messageData = data.data;
         
         if (!messageData || !messageData.key) {
+            console.log('🟦 Sem messageData ou key - IGNORANDO\n');
+            addLog('EVOLUTION_NO_DATA', 'Sem messageData ou key');
             return res.json({ success: true });
         }
         
@@ -1246,66 +1356,139 @@ app.post('/webhook/evolution', async (req, res) => {
         const fromMe = messageData.key.fromMe;
         const messageText = extractMessageText(messageData.message);
         
-        if (fromMe) {
-            return res.json({ success: true });
-        }
+        console.log('🟦 remoteJid ORIGINAL:', remoteJid);
+        console.log('🟦 fromMe:', fromMe);
+        console.log('🟦 messageText:', messageText.substring(0, 50));
         
-        const incomingPhone = remoteJid.split('@')[0];
-        const phoneKey = normalizePhoneKey(incomingPhone);
-        
-        console.log('🟦 Webhook Evolution:', {
-            remoteJid,
-            incomingPhone,
-            phoneKey,
-            text: messageText.substring(0, 30)
+        // LOG DETALHADO
+        addLog('EVOLUTION_MESSAGE_RECEIVED', '🟦 Mensagem recebida', {
+            remoteJid: remoteJid,
+            fromMe: fromMe,
+            text: messageText.substring(0, 100),
+            event: event
         });
         
-        addLog('EVOLUTION_MESSAGE', `Mensagem recebida`, {
-            remoteJid,
-            phoneKey,
-            text: messageText.substring(0, 50)
+        // 🔥 CORREÇÃO: Remove QUALQUER sufixo (@s.whatsapp.net, @lid, @g.us, etc)
+        const incomingPhone = remoteJid.split('@')[0];
+        
+        // 🔥 USANDO NORMALIZAÇÃO UNIVERSAL
+        const phoneKey = normalizePhoneKey(incomingPhone);
+        
+        console.log('🟦 incomingPhone limpo:', incomingPhone);
+        console.log('🟦 phoneKey normalizada:', phoneKey);
+        console.log('🟦 Conversas ativas:', conversations.size);
+        console.log('🟦 PhoneKeys ativos:', Array.from(conversations.keys()));
+        
+        // LOG DETALHADO DE NORMALIZAÇÃO
+        addLog('EVOLUTION_PHONE_NORMALIZED', '🟦 Telefone normalizado', {
+            original: remoteJid,
+            cleaned: incomingPhone,
+            phoneKey: phoneKey,
+            activeConversations: Array.from(conversations.keys())
         });
         
         if (!phoneKey || phoneKey.length !== 8) {
-            addLog('EVOLUTION_INVALID_PHONE', 'PhoneKey inválido', { incomingPhone, phoneKey });
+            console.log('🟦 phoneKey inválido - IGNORANDO\n');
+            addLog('EVOLUTION_INVALID_PHONE', 'PhoneKey inválido', { 
+                phone: incomingPhone, 
+                phoneKey: phoneKey 
+            });
             return res.json({ success: true });
         }
         
+        if (fromMe) {
+            console.log('🟦 Mensagem fromMe - IGNORANDO\n');
+            addLog('EVOLUTION_FROM_ME', 'Mensagem própria ignorada');
+            return res.json({ success: true });
+        }
+        
+        console.log('🟦 Tentando adquirir lock...');
+        
         const hasLock = await acquireWebhookLock(phoneKey);
         if (!hasLock) {
+            console.log('🟦 Lock timeout\n');
+            addLog('EVOLUTION_LOCK_TIMEOUT', 'Timeout no lock', { phoneKey });
             return res.json({ success: false, message: 'Lock timeout' });
         }
         
         try {
-            // 🔥 BUSCA UNIVERSAL - ENCONTRA INDEPENDENTE DO FORMATO
+            console.log('🟦 Buscando conversa (usando busca universal)...');
+            
+            // 🔥 USANDO BUSCA UNIVERSAL
             const conversation = findConversationUniversal(incomingPhone);
             
-            addLog('EVOLUTION_SEARCH', `Busca resultado`, {
+            // LOG DO RESULTADO DA BUSCA
+            addLog('EVOLUTION_SEARCH_RESULT', '🟦 Resultado da busca', {
                 found: conversation ? true : false,
                 phoneKey: phoneKey,
                 conversationKey: conversation ? conversation.phoneKey : null,
+                funnelId: conversation ? conversation.funnelId : null,
+                stepIndex: conversation ? conversation.stepIndex : null,
                 waiting: conversation ? conversation.waiting_for_response : null
             });
             
-            if (!conversation || conversation.canceled || conversation.pixWaiting) {
-                addLog('EVOLUTION_IGNORED', 'Conversa cancelada/inexistente/pixWaiting', { phoneKey });
-                return res.json({ success: true });
+            if (conversation) {
+                console.log('🟦 ✅✅✅ Conversa ENCONTRADA!');
+                console.log('🟦 phoneKey da conversa:', conversation.phoneKey);
+                console.log('🟦 funnelId:', conversation.funnelId);
+                console.log('🟦 stepIndex:', conversation.stepIndex);
+                console.log('🟦 waiting_for_response:', conversation.waiting_for_response);
+                console.log('🟦 canceled:', conversation.canceled);
+                console.log('🟦 pixWaiting:', conversation.pixWaiting);
+                
+                // 🔥 REGISTRA O TELEFONE PARA FUTURAS BUSCAS
+                registerPhoneUniversal(incomingPhone, conversation.phoneKey);
+            } else {
+                console.log('🟦 ❌ Conversa NÃO encontrada');
+                console.log('🟦 Conversas disponíveis:', Array.from(conversations.keys()));
+                
+                // LOG DETALHADO QUANDO NÃO ENCONTRA
+                addLog('EVOLUTION_CONVERSATION_NOT_FOUND', '❌ Conversa não encontrada', {
+                    phoneKey: phoneKey,
+                    incomingPhone: incomingPhone,
+                    availableKeys: Array.from(conversations.keys()),
+                    messageText: messageText.substring(0, 50)
+                });
             }
             
-            if (!conversation.waiting_for_response) {
-                addLog('EVOLUTION_NOT_WAITING', 'Não aguardando resposta', { 
+            if (!conversation || conversation.canceled) {
+                console.log('🟦 Conversa cancelada ou não existe - IGNORANDO\n');
+                addLog('EVOLUTION_IGNORED', 'Conversa cancelada ou inexistente', { 
                     phoneKey,
-                    stepIndex: conversation.stepIndex
+                    exists: conversation ? true : false,
+                    canceled: conversation ? conversation.canceled : null
                 });
                 return res.json({ success: true });
             }
             
-            console.log('✅✅✅ RESPOSTA VÁLIDA - Avançando conversa');
+            if (conversation.pixWaiting) {
+                console.log('🟦 ⏳ Conversa aguardando timeout PIX - IGNORANDO');
+                addLog('EVOLUTION_PIX_WAITING', 'Ainda aguardando timeout PIX', {
+                    phoneKey,
+                    pixWaiting: true
+                });
+                return res.json({ success: true });
+            }
             
-            addLog('CLIENT_REPLY', `✅ Resposta processada`, { 
+            if (!conversation.waiting_for_response) {
+                console.log('🟦 ⚠️ Não está aguardando resposta');
+                addLog('WEBHOOK_NOT_WAITING', `⚠️ Não aguardando resposta`, { 
+                    phoneKey,
+                    waiting_for_response: conversation.waiting_for_response,
+                    stepIndex: conversation.stepIndex,
+                    funnelId: conversation.funnelId
+                });
+                return res.json({ success: true });
+            }
+            
+            console.log('🟦 ✅✅✅ RESPOSTA VÁLIDA! Avançando conversa...');
+            
+            addLog('CLIENT_REPLY', `✅✅✅ RESPOSTA RECEBIDA E PROCESSADA`, { 
                 phoneKey, 
                 text: messageText.substring(0, 50),
-                stepIndex: conversation.stepIndex
+                stepIndex: conversation.stepIndex,
+                funnelId: conversation.funnelId,
+                willAdvance: true
             });
             
             conversation.waiting_for_response = false;
@@ -1314,6 +1497,14 @@ app.post('/webhook/evolution', async (req, res) => {
             
             await advanceConversation(phoneKey, messageText, 'reply');
             
+            console.log('🟦 ✅✅✅ Conversa avançada com sucesso!');
+            addLog('EVOLUTION_ADVANCE_SUCCESS', '✅ Conversa avançada', {
+                phoneKey,
+                newStepIndex: conversation.stepIndex + 1
+            });
+            
+            console.log('🟦🟦🟦 FIM WEBHOOK EVOLUTION\n');
+            
             res.json({ success: true });
             
         } finally {
@@ -1321,12 +1512,15 @@ app.post('/webhook/evolution', async (req, res) => {
         }
         
     } catch (error) {
+        console.log('🟦 ❌ ERRO:', error.message);
+        console.log('🟦 Stack:', error.stack);
         addLog('EVOLUTION_ERROR', error.message);
+        releaseWebhookLock(phoneKey);
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// ============ API ENDPOINTS ============
+// ============ API ENDPOINTS (mantidos iguais) ============
 
 app.get('/api/dashboard', (req, res) => {
     const instanceUsage = {};
@@ -1358,11 +1552,214 @@ app.get('/api/dashboard', (req, res) => {
             total_instances: INSTANCES.length,
             sticky_instances: stickyInstances.size,
             instance_distribution: instanceUsage,
-            webhook_locks: webhookLocks.size,
-            phone_index_size: phoneIndex.size,
-            phone_variations_size: phoneVariations.size
+            webhook_locks: webhookLocks.size
         }
     });
+});
+
+app.get('/api/funnels', (req, res) => {
+    const funnelsList = Array.from(funis.values()).map(funnel => ({
+        ...funnel,
+        isDefault: funnel.id === 'CS_APROVADA' || funnel.id === 'CS_PIX' || funnel.id === 'FAB_APROVADA' || funnel.id === 'FAB_PIX',
+        stepCount: funnel.steps.length
+    }));
+    
+    res.json({ success: true, data: funnelsList });
+});
+
+app.post('/api/funnels', (req, res) => {
+    try {
+        const funnel = req.body;
+        
+        if (!funnel.id || !funnel.name || !funnel.steps) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Campos obrigatórios: id, name, steps' 
+            });
+        }
+        
+        if (!funnel.id.startsWith('CS_') && !funnel.id.startsWith('FAB_')) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Apenas funis CS e FAB são permitidos' 
+            });
+        }
+        
+        if (!Array.isArray(funnel.steps)) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Steps deve ser um array' 
+            });
+        }
+        
+        funnel.steps.forEach((step, idx) => {
+            if (step && !step.id) {
+                step.id = 'step_' + Date.now() + '_' + idx;
+            }
+        });
+        
+        funis.set(funnel.id, funnel);
+        addLog('FUNNEL_SAVED', 'Funil salvo: ' + funnel.id, {
+            stepCount: funnel.steps.length
+        });
+        
+        saveFunnelsToFile();
+        
+        res.json({ 
+            success: true, 
+            message: 'Funil salvo com sucesso', 
+            data: funnel 
+        });
+        
+    } catch (error) {
+        console.error('Erro ao salvar funil:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Erro ao salvar funil: ' + error.message 
+        });
+    }
+});
+
+app.post('/api/funnels/:funnelId/move-step', (req, res) => {
+    try {
+        const { funnelId } = req.params;
+        const { fromIndex, direction } = req.body;
+        
+        if (fromIndex === undefined || fromIndex === null || !direction) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Parâmetros obrigatórios: fromIndex e direction' 
+            });
+        }
+        
+        const funnel = funis.get(funnelId);
+        if (!funnel) {
+            return res.status(404).json({ 
+                success: false, 
+                error: `Funil ${funnelId} não encontrado` 
+            });
+        }
+        
+        if (!funnel.steps || !Array.isArray(funnel.steps) || funnel.steps.length === 0) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Funil não possui passos válidos' 
+            });
+        }
+        
+        const from = parseInt(fromIndex);
+        
+        if (isNaN(from) || from < 0 || from >= funnel.steps.length) {
+            return res.status(400).json({ 
+                success: false, 
+                error: `Índice ${from} fora do intervalo (0-${funnel.steps.length - 1})` 
+            });
+        }
+        
+        const toIndex = direction === 'up' ? from - 1 : from + 1;
+        
+        if (toIndex < 0 || toIndex >= funnel.steps.length) {
+            return res.status(400).json({ 
+                success: false, 
+                error: `Não é possível mover o passo ${from} para ${direction}` 
+            });
+        }
+        
+        const updatedFunnel = JSON.parse(JSON.stringify(funnel));
+        
+        if (!updatedFunnel.steps[from] || !updatedFunnel.steps[toIndex]) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Passos inválidos para troca' 
+            });
+        }
+        
+        const temp = updatedFunnel.steps[from];
+        updatedFunnel.steps[from] = updatedFunnel.steps[toIndex];
+        updatedFunnel.steps[toIndex] = temp;
+        
+        updatedFunnel.steps.forEach((step, idx) => {
+            if (step && !step.id) {
+                step.id = 'step_' + Date.now() + '_' + idx;
+            }
+        });
+        
+        funis.set(funnelId, updatedFunnel);
+        
+        saveFunnelsToFile();
+        
+        addLog('STEP_MOVED', `Passo ${from} movido para ${toIndex}`, { 
+            funnelId, 
+            direction,
+            totalSteps: updatedFunnel.steps.length 
+        });
+        
+        res.json({ 
+            success: true, 
+            message: `Passo movido de ${from} para ${toIndex}`,
+            data: updatedFunnel 
+        });
+        
+    } catch (error) {
+        console.error('Erro ao mover passo:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Erro interno: ' + error.message 
+        });
+    }
+});
+
+app.get('/api/funnels/export', (req, res) => {
+    try {
+        const funnelsArray = Array.from(funis.values());
+        const filename = `kirvano-funis-${new Date().toISOString().split('T')[0]}.json`;
+        
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(JSON.stringify({
+            version: '5.0',
+            exportDate: new Date().toISOString(),
+            totalFunnels: funnelsArray.length,
+            funnels: funnelsArray
+        }, null, 2));
+        
+        addLog('FUNNELS_EXPORT', `Export: ${funnelsArray.length} funis`);
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/funnels/import', (req, res) => {
+    try {
+        const importData = req.body;
+        
+        if (!importData.funnels || !Array.isArray(importData.funnels)) {
+            return res.status(400).json({ success: false, error: 'Arquivo inválido' });
+        }
+        
+        let importedCount = 0, skippedCount = 0;
+        
+        importData.funnels.forEach(funnel => {
+            if (funnel.id && funnel.name && funnel.steps && (funnel.id.startsWith('CS_') || funnel.id.startsWith('FAB_'))) {
+                funis.set(funnel.id, funnel);
+                importedCount++;
+            } else {
+                skippedCount++;
+            }
+        });
+        
+        saveFunnelsToFile();
+        addLog('FUNNELS_IMPORT', `Import: ${importedCount} importados, ${skippedCount} ignorados`);
+        
+        res.json({ 
+            success: true, 
+            imported: importedCount,
+            skipped: skippedCount,
+            total: importData.funnels.length
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 
 app.get('/api/conversations', (req, res) => {
@@ -1406,41 +1803,75 @@ app.get('/api/logs', (req, res) => {
     res.json({ success: true, data: recentLogs });
 });
 
-app.get('/api/funnels', (req, res) => {
-    const funnelsList = Array.from(funis.values());
-    res.json({ success: true, data: funnelsList });
-});
-
-app.post('/api/funnels', async (req, res) => {
+app.get('/api/debug/evolution', async (req, res) => {
+    const debugInfo = {
+        evolution_base_url: EVOLUTION_BASE_URL,
+        evolution_api_key_configured: EVOLUTION_API_KEY !== 'SUA_API_KEY_AQUI',
+        evolution_api_key_length: EVOLUTION_API_KEY.length,
+        instances: INSTANCES,
+        active_conversations: conversations.size,
+        sticky_instances_count: stickyInstances.size,
+        pix_timeouts_active: pixTimeouts.size,
+        webhook_locks_active: webhookLocks.size,
+        test_results: [],
+        available_instances: []
+    };
+    
     try {
-        const funnel = req.body;
-        
-        if (!funnel.id || !funnel.name || !funnel.steps) {
-            return res.status(400).json({ 
-                success: false, 
-                error: 'Campos obrigatórios: id, name, steps' 
-            });
-        }
-        
-        funis.set(funnel.id, funnel);
-        await saveFunnelsToFile();
-        
-        res.json({ 
-            success: true, 
-            message: 'Funil salvo com sucesso', 
-            data: funnel 
+        const listUrl = EVOLUTION_BASE_URL + '/instance/fetchInstances';
+        const listResponse = await axios.get(listUrl, {
+            headers: {
+                'apikey': EVOLUTION_API_KEY
+            },
+            timeout: 10000,
+            validateStatus: () => true
         });
         
+        debugInfo.available_instances = listResponse.data;
+        debugInfo.list_status = listResponse.status;
     } catch (error) {
-        res.status(500).json({ 
-            success: false, 
-            error: error.message 
+        debugInfo.list_error = error.message;
+    }
+    
+    try {
+        const testInstance = INSTANCES[0];
+        const url = EVOLUTION_BASE_URL + '/message/sendText/' + testInstance;
+        
+        const response = await axios.post(url, {
+            number: '5511999999999',
+            text: 'teste'
+        }, {
+            headers: {
+                'Content-Type': 'application/json',
+                'apikey': EVOLUTION_API_KEY
+            },
+            timeout: 10000,
+            validateStatus: () => true
+        });
+        
+        debugInfo.test_results.push({
+            instance: testInstance,
+            status: response.status,
+            response: response.data,
+            url: url
+        });
+    } catch (error) {
+        debugInfo.test_results.push({
+            instance: INSTANCES[0],
+            error: error.message,
+            code: error.code
         });
     }
+    
+    res.json(debugInfo);
 });
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/test.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'test.html'));
 });
 
 // ============ INICIALIZAÇÃO ============
@@ -1453,41 +1884,38 @@ async function initializeData() {
     console.log('✅ Inicialização concluída');
     console.log('📊 Funis:', funis.size);
     console.log('💬 Conversas:', conversations.size);
-    console.log('📇 Índices: phoneIndex=' + phoneIndex.size + ', phoneVariations=' + phoneVariations.size);
 }
 
 app.listen(PORT, async () => {
-    console.log('='.repeat(80));
-    console.log('🛡️ KIRVANO v6.0 - SISTEMA ULTRA ROBUSTO');
-    console.log('='.repeat(80));
+    console.log('='.repeat(70));
+    console.log('🚀 KIRVANO + PERFECTPAY v5.0 - NORMALIZAÇÃO UNIVERSAL');
+    console.log('='.repeat(70));
     console.log('✅ Porta:', PORT);
     console.log('✅ Evolution:', EVOLUTION_BASE_URL);
-    console.log('✅ Instâncias:', INSTANCES.length);
+    console.log('✅ Instâncias:', INSTANCES.length, '-', INSTANCES.join(', '));
     console.log('');
-    console.log('🔥 MELHORIAS IMPLEMENTADAS:');
-    console.log('  ✅ Sistema de Normalização ULTRA Robusto');
-    console.log('  ✅ Busca em 4 Níveis (Direta → Índice → Sufixos → Exaustiva)');
-    console.log('  ✅ Geração de 30+ variações por telefone');
-    console.log('  ✅ Registro automático de TODAS variações');
-    console.log('  ✅ Compatível com @s.whatsapp.net, @lid, @g.us');
-    console.log('  ✅ Tolerante a formatos com/sem 55, com/sem 9');
-    console.log('  ✅ Sistema de Retry mantido (fallback entre instâncias)');
-    console.log('  ✅ Sticky instances mantido (1 lead = 1 instância preferencial)');
+    console.log('🔥 CORREÇÕES IMPLEMENTADAS:');
+    console.log('  ✅ Sistema de Normalização Universal de telefones');
+    console.log('  ✅ Busca inteligente e tolerante a falhas');
+    console.log('  ✅ Registro automático de todas variações');
+    console.log('  ✅ Correção do waiting_for_response no PIX');
+    console.log('  ✅ Logs ultra-detalhados para debug');
+    console.log('  ✅ Webhook Evolution melhorado');
     console.log('');
-    console.log('📱 NORMALIZAÇÃO:');
-    console.log('  • PerfectPay envia: 8899880565');
-    console.log('  • Evolution retorna: 5588990429388@s.whatsapp.net');
-    console.log('  • Sistema encontra: INDEPENDENTE do formato!');
+    console.log('🔴🟢🔵 LOGS EXTREMOS ATIVADOS:');
+    console.log('  🔴 createPixWaitingConversation');
+    console.log('  🟢 transferPixToApproved');
+    console.log('  🔵 startFunnel');
+    console.log('  🟡 Webhook Kirvano');
+    console.log('  🟣 Webhook PerfectPay');
+    console.log('  🟦 Webhook Evolution');
     console.log('');
-    console.log('🔍 BUSCA INTELIGENTE:');
-    console.log('  • Nível 1: Busca direta por phoneKey');
-    console.log('  • Nível 2: Busca em índices de variações');
-    console.log('  • Nível 3: Busca com sufixos WhatsApp');
-    console.log('  • Nível 4: Busca exaustiva em todas conversas');
+    console.log('📱 NORMALIZAÇÃO: Qualquer formato de telefone será aceito');
+    console.log('🔍 BUSCA: Sistema inteligente encontra conversas de qualquer formato');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
-    console.log('📊 Dashboard: http://localhost:' + PORT + '/api/dashboard');
-    console.log('='.repeat(80));
+    console.log('🧪 Testes: http://localhost:' + PORT + '/test.html');
+    console.log('='.repeat(70));
     
     await initializeData();
 });
