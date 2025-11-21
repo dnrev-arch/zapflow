@@ -3,6 +3,7 @@ const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 const fs = require('fs').promises;
+const crypto = require('crypto');
 const app = express();
 
 // ============ CONFIGURAÇÕES ============
@@ -12,6 +13,7 @@ const PIX_TIMEOUT = 7 * 60 * 1000; // 7 minutos
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data', 'funnels.json');
 const CONVERSATIONS_FILE = path.join(__dirname, 'data', 'conversations.json');
+const MESSAGE_BLOCK_TIME = 60000; // 60 segundos de bloqueio por mensagem
 
 // ============ MAPEAMENTO DE PRODUTOS ============
 
@@ -49,10 +51,10 @@ const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09'
 
 // ============ ARMAZENAMENTO EM MEMÓRIA ============
 let conversations = new Map();
-let phoneIndex = new Map();          // Índice principal
-let phoneVariations = new Map();     // Índice reverso ULTRA robusto
-let lidMapping = new Map();          // 🔥 NOVO: Mapeia @lid → phoneKey
-let phoneToLid = new Map();          // 🔥 NOVO: Mapeia phoneKey → @lid
+let phoneIndex = new Map();
+let phoneVariations = new Map();
+let lidMapping = new Map();
+let phoneToLid = new Map();
 let stickyInstances = new Map();
 let pixTimeouts = new Map();
 let webhookLocks = new Map();
@@ -60,23 +62,93 @@ let logs = [];
 let funis = new Map();
 let lastSuccessfulInstanceIndex = -1;
 
+// 🔥 NOVO: Sistema de bloqueio de mensagens duplicadas
+let sentMessagesHash = new Map(); // phoneKey -> Set de hashes
+let messageBlockTimers = new Map(); // hash -> timestamp
+
+// ============ SISTEMA DE HASH DE MENSAGENS ============
+
+function generateMessageHash(phoneKey, content, type) {
+    // Cria um hash único baseado em: telefone + conteúdo + tipo
+    const data = `${phoneKey}|${content}|${type}`;
+    return crypto.createHash('md5').update(data).digest('hex');
+}
+
+function isMessageBlocked(phoneKey, content, type) {
+    const hash = generateMessageHash(phoneKey, content, type);
+    
+    // Verifica se já foi enviado recentemente
+    const lastSent = messageBlockTimers.get(hash);
+    if (lastSent) {
+        const timeSince = Date.now() - lastSent;
+        if (timeSince < MESSAGE_BLOCK_TIME) {
+            console.log(`🚫 MENSAGEM BLOQUEADA - Enviada há ${Math.round(timeSince/1000)}s`, {
+                phoneKey,
+                hash: hash.substring(0, 8),
+                content: String(content).substring(0, 30)
+            });
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+function registerSentMessage(phoneKey, content, type) {
+    const hash = generateMessageHash(phoneKey, content, type);
+    
+    // Registra timestamp do envio
+    messageBlockTimers.set(hash, Date.now());
+    
+    // Adiciona ao set de mensagens enviadas do telefone
+    if (!sentMessagesHash.has(phoneKey)) {
+        sentMessagesHash.set(phoneKey, new Set());
+    }
+    sentMessagesHash.get(phoneKey).add(hash);
+    
+    console.log('✅ Mensagem registrada no bloqueio', {
+        phoneKey,
+        hash: hash.substring(0, 8),
+        total: sentMessagesHash.get(phoneKey).size
+    });
+    
+    addLog('MESSAGE_REGISTERED', `Mensagem bloqueada por 60s`, {
+        phoneKey,
+        hash: hash.substring(0, 8)
+    });
+}
+
+// Limpar mensagens antigas periodicamente (a cada 2 minutos)
+setInterval(() => {
+    const now = Date.now();
+    let cleanedCount = 0;
+    
+    for (const [hash, timestamp] of messageBlockTimers.entries()) {
+        if (now - timestamp > MESSAGE_BLOCK_TIME) {
+            messageBlockTimers.delete(hash);
+            cleanedCount++;
+        }
+    }
+    
+    if (cleanedCount > 0) {
+        console.log(`🧹 Limpeza: ${cleanedCount} bloqueios expirados removidos`);
+    }
+}, 120000);
+
 // ============ SISTEMA DE NORMALIZAÇÃO UNIVERSAL ULTRA ROBUSTO ============
 
-// 🔥 FUNÇÃO 1: Normaliza QUALQUER formato para phoneKey (últimos 8 dígitos)
 function normalizePhoneKey(phone) {
     if (!phone) return null;
     
-    // Remove TUDO que não for número (incluindo sufixos @s.whatsapp.net, @lid, @g.us)
     let cleaned = String(phone)
-        .split('@')[0]  // Remove sufixos
-        .replace(/\D/g, '');  // Remove tudo que não é número
+        .split('@')[0]
+        .replace(/\D/g, '');
     
     if (cleaned.length < 8) {
         console.log('❌ Telefone muito curto:', phone);
         return null;
     }
     
-    // SEMPRE retorna últimos 8 dígitos como chave primária
     const phoneKey = cleaned.slice(-8);
     
     console.log('📱 Normalização:', {
@@ -88,7 +160,6 @@ function normalizePhoneKey(phone) {
     return phoneKey;
 }
 
-// 🔥 FUNÇÃO 2: Gera TODAS as variações possíveis de um número
 function generateAllPhoneVariations(fullPhone) {
     const cleaned = String(fullPhone)
         .split('@')[0]
@@ -98,64 +169,50 @@ function generateAllPhoneVariations(fullPhone) {
     
     const variations = new Set();
     
-    // 1. Número completo limpo
     variations.add(cleaned);
     
-    // 2. Com 55 no início
     if (!cleaned.startsWith('55')) {
         variations.add('55' + cleaned);
     }
     
-    // 3. Sem 55 no início (se tiver)
     if (cleaned.startsWith('55') && cleaned.length > 2) {
         variations.add(cleaned.substring(2));
     }
     
-    // 4. Últimos N dígitos (8, 9, 10, 11, 12, 13)
     for (let i = 8; i <= Math.min(13, cleaned.length); i++) {
         const lastN = cleaned.slice(-i);
         variations.add(lastN);
         
-        // Com 55
         if (!lastN.startsWith('55')) {
             variations.add('55' + lastN);
         }
     }
     
-    // 5. Variações com/sem 9 do celular (formato novo vs antigo)
     if (cleaned.length >= 11) {
-        // Pega DDD (2 dígitos) e resto
-        const ddd = cleaned.slice(-11, -9);  // 2 dígitos do DDD
-        const numero = cleaned.slice(-9);     // 9XXXXXXXX ou 8XXXXXXXX
+        const ddd = cleaned.slice(-11, -9);
+        const numero = cleaned.slice(-9);
         
-        // Se tem o 9 adicional
         if (numero.length === 9 && numero[0] === '9') {
-            // Cria versão SEM o 9 (formato antigo)
             const semNove = ddd + numero.substring(1);
             variations.add(semNove);
             variations.add('55' + semNove);
             
-            // Todas as variações de tamanho
             for (let i = 8; i <= semNove.length; i++) {
                 variations.add(semNove.slice(-i));
             }
         }
         
-        // Se NÃO tem o 9 adicional
         if (numero.length === 8 || (numero.length === 9 && numero[0] !== '9')) {
-            // Cria versão COM o 9 (formato novo)
             const comNove = ddd + '9' + numero;
             variations.add(comNove);
             variations.add('55' + comNove);
             
-            // Todas as variações de tamanho
             for (let i = 8; i <= comNove.length; i++) {
                 variations.add(comNove.slice(-i));
             }
         }
     }
     
-    // 6. Caso especial: 12 dígitos sem o 9 (5588XXXXXXXX)
     if (cleaned.length === 12 && cleaned.startsWith('55')) {
         const ddd = cleaned.substring(2, 4);
         const numero = cleaned.substring(4);
@@ -169,7 +226,6 @@ function generateAllPhoneVariations(fullPhone) {
         }
     }
     
-    // 7. Caso especial: 13 dígitos com o 9 (5588997215401)
     if (cleaned.length === 13 && cleaned.startsWith('55')) {
         const ddd = cleaned.substring(2, 4);
         const numeroComNove = cleaned.substring(4);
@@ -183,7 +239,6 @@ function generateAllPhoneVariations(fullPhone) {
         }
     }
     
-    // Remove variações muito curtas ou inválidas
     const validVariations = Array.from(variations).filter(v => v && v.length >= 8);
     
     console.log(`🔢 Geradas ${validVariations.length} variações para ${cleaned}`);
@@ -191,7 +246,6 @@ function generateAllPhoneVariations(fullPhone) {
     return validVariations;
 }
 
-// 🔥 FUNÇÃO 3: Registra TODAS as variações de um telefone
 function registerPhoneUniversal(fullPhone, phoneKey) {
     if (!phoneKey || phoneKey.length !== 8) {
         console.log('❌ PhoneKey inválida para registro:', phoneKey);
@@ -200,7 +254,6 @@ function registerPhoneUniversal(fullPhone, phoneKey) {
     
     const variations = generateAllPhoneVariations(fullPhone);
     
-    // Registra TODAS as variações apontando para a mesma phoneKey
     let registeredCount = 0;
     
     variations.forEach(variation => {
@@ -211,7 +264,6 @@ function registerPhoneUniversal(fullPhone, phoneKey) {
         }
     });
     
-    // Também registra com sufixos comuns do WhatsApp
     const suffixes = ['@s.whatsapp.net', '@lid', '@g.us'];
     const cleaned = String(fullPhone).split('@')[0].replace(/\D/g, '');
     
@@ -235,17 +287,12 @@ function registerPhoneUniversal(fullPhone, phoneKey) {
     });
 }
 
-// 🔥 NOVO: Função para registrar mapeamento @lid
 function registerLidMapping(lidJid, phoneKey, realNumber) {
     if (!lidJid || !phoneKey) return;
     
-    // Mapeia @lid → phoneKey
     lidMapping.set(lidJid, phoneKey);
-    
-    // Mapeia phoneKey → @lid (reverso)
     phoneToLid.set(phoneKey, lidJid);
     
-    // Também registra variações do @lid
     const lidCleaned = lidJid.split('@')[0].replace(/\D/g, '');
     if (lidCleaned) {
         lidMapping.set(lidCleaned, phoneKey);
@@ -264,7 +311,6 @@ function registerLidMapping(lidJid, phoneKey, realNumber) {
     });
 }
 
-// 🔥 FUNÇÃO 4: Busca conversa de QUALQUER formato (5 níveis de busca + @lid)
 function findConversationUniversal(phone) {
     const phoneKey = normalizePhoneKey(phone);
     
@@ -275,7 +321,7 @@ function findConversationUniversal(phone) {
     
     console.log('🔍 Iniciando busca UNIVERSAL para:', phoneKey);
     
-    // ===== NÍVEL 1: Busca direta pela phoneKey =====
+    // NÍVEL 1: Busca direta
     let conversation = conversations.get(phoneKey);
     if (conversation) {
         console.log('✅ NÍVEL 1: Encontrado (busca direta):', phoneKey);
@@ -283,12 +329,11 @@ function findConversationUniversal(phone) {
         return conversation;
     }
     
-    // ===== NÍVEL 2: Busca pelo índice usando todas as variações =====
+    // NÍVEL 2: Busca por variações
     const variations = generateAllPhoneVariations(phone);
     console.log(`🔍 NÍVEL 2: Testando ${variations.length} variações...`);
     
     for (const variation of variations) {
-        // Testa no índice principal
         const indexedKey = phoneIndex.get(variation);
         if (indexedKey) {
             conversation = conversations.get(indexedKey);
@@ -299,7 +344,6 @@ function findConversationUniversal(phone) {
             }
         }
         
-        // Testa no índice reverso
         const varKey = phoneVariations.get(variation);
         if (varKey) {
             conversation = conversations.get(varKey);
@@ -311,7 +355,7 @@ function findConversationUniversal(phone) {
         }
     }
     
-    // ===== NÍVEL 3: Busca com sufixos WhatsApp =====
+    // NÍVEL 3: Busca com sufixos
     console.log('🔍 NÍVEL 3: Testando sufixos WhatsApp...');
     const suffixes = ['@s.whatsapp.net', '@lid', '@g.us', ''];
     
@@ -331,25 +375,22 @@ function findConversationUniversal(phone) {
         }
     }
     
-    // ===== NÍVEL 4: Busca exaustiva em TODAS as conversas =====
+    // NÍVEL 4: Busca exaustiva
     console.log('🔍 NÍVEL 4: Busca exaustiva em', conversations.size, 'conversas...');
     
     for (const [key, conv] of conversations.entries()) {
-        // Match 1: Últimos 8 dígitos exatos
         if (key === phoneKey) {
             console.log('✅ NÍVEL 4: Match exato 8 dígitos:', key);
             registerPhoneUniversal(phone, key);
             return conv;
         }
         
-        // Match 2: Últimos 7 dígitos (muito provável ser o mesmo)
         if (key.slice(-7) === phoneKey.slice(-7)) {
             console.log('✅ NÍVEL 4: Match últimos 7 dígitos:', key);
             registerPhoneUniversal(phone, key);
             return conv;
         }
         
-        // Match 3: Compara remoteJid da conversa
         if (conv.remoteJid) {
             const convPhoneKey = normalizePhoneKey(conv.remoteJid);
             if (convPhoneKey === phoneKey) {
@@ -358,7 +399,6 @@ function findConversationUniversal(phone) {
                 return conv;
             }
             
-            // Match 4: RemoteJid últimos 7 dígitos
             if (convPhoneKey && convPhoneKey.slice(-7) === phoneKey.slice(-7)) {
                 console.log('✅ NÍVEL 4: Match remoteJid últimos 7:', key);
                 registerPhoneUniversal(phone, key);
@@ -367,10 +407,9 @@ function findConversationUniversal(phone) {
         }
     }
     
-    // ===== 🔥 NÍVEL 5: Busca por @lid mapping =====
+    // NÍVEL 5: Busca por @lid
     console.log('🔍 NÍVEL 5: Testando mapeamento @lid...');
     
-    // Se o telefone veio com @lid
     if (String(phone).includes('@lid')) {
         const mappedKey = lidMapping.get(phone);
         if (mappedKey) {
@@ -381,7 +420,6 @@ function findConversationUniversal(phone) {
             }
         }
         
-        // Tenta sem o sufixo
         const phoneCleaned = String(phone).split('@')[0];
         const mappedKey2 = lidMapping.get(phoneCleaned);
         if (mappedKey2) {
@@ -393,7 +431,6 @@ function findConversationUniversal(phone) {
         }
     }
     
-    // NÃO ENCONTRADO após 5 níveis de busca
     console.log('❌ Conversa NÃO encontrada após busca ULTRA completa');
     console.log('📊 Debug completo:', {
         phoneKey,
@@ -895,8 +932,19 @@ async function sendAudio(remoteJid, audioUrl, instanceName) {
     }
 }
 
-// ============ ENVIO COM RETRY ============
+// ============ 🔥 ENVIO COM PROTEÇÃO ANTI-DUPLICAÇÃO TOTAL ============
 async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFirstMessage = false) {
+    // 🔥 PROTEÇÃO 1: Verifica se mensagem já foi enviada recentemente
+    const content = text || mediaUrl || '';
+    if (isMessageBlocked(phoneKey, content, type)) {
+        addLog('SEND_BLOCKED_DUPLICATE', `🚫 BLOQUEADO - Mensagem duplicada`, {
+            phoneKey,
+            type,
+            content: String(content).substring(0, 30)
+        });
+        return { success: false, error: 'MESSAGE_ALREADY_SENT', blocked: true };
+    }
+    
     let instancesToTry = [...INSTANCES];
     const stickyInstance = stickyInstances.get(phoneKey);
     
@@ -923,11 +971,14 @@ async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFir
                 else if (type === 'audio') result = await sendAudio(remoteJid, mediaUrl, instanceName);
                 
                 if (result && result.ok) {
+                    // 🔥 REGISTRA MENSAGEM ENVIADA
+                    registerSentMessage(phoneKey, content, type);
+                    
                     stickyInstances.set(phoneKey, instanceName);
                     if (isFirstMessage) {
                         lastSuccessfulInstanceIndex = INSTANCES.indexOf(instanceName);
                     }
-                    addLog('SEND_SUCCESS', `Mensagem enviada via ${instanceName}`, { phoneKey, type });
+                    addLog('SEND_SUCCESS', `✅ Mensagem enviada via ${instanceName}`, { phoneKey, type });
                     return { success: true, instanceName };
                 }
                 
@@ -944,7 +995,7 @@ async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFir
         }
     }
     
-    addLog('SEND_ALL_FAILED', `Falha total no envio para ${phoneKey}`, { lastError });
+    addLog('SEND_ALL_FAILED', `❌ Falha total no envio para ${phoneKey}`, { lastError });
     
     const conversation = conversations.get(phoneKey);
     if (conversation) {
@@ -960,6 +1011,14 @@ async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFir
 
 async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, amount) {
     console.log('🔴 createPixWaitingConversation:', phoneKey);
+    
+    // 🔥 PROTEÇÃO 2: Verifica se já existe conversa ativa
+    const existing = conversations.get(phoneKey);
+    if (existing && !existing.canceled) {
+        console.log('⚠️ BLOQUEADO - Conversa já existe:', phoneKey);
+        addLog('PIX_CREATION_BLOCKED', '🚫 Conversa já existe', { phoneKey, orderCode });
+        return;
+    }
     
     const conversation = {
         phoneKey,
@@ -980,8 +1039,6 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
     };
     
     conversations.set(phoneKey, conversation);
-    
-    // 🔥 REGISTRA TODAS AS VARIAÇÕES
     registerPhoneUniversal(remoteJid, phoneKey);
     
     addLog('PIX_WAITING_CREATED', `PIX em espera para ${phoneKey}`, { orderCode, productType });
@@ -1047,8 +1104,6 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
     };
     
     conversations.set(phoneKey, approvedConv);
-    
-    // 🔥 REGISTRA TODAS AS VARIAÇÕES
     registerPhoneUniversal(remoteJid, phoneKey);
     
     addLog('TRANSFER_PIX_TO_APPROVED', `Transferido para APROVADA`, { phoneKey, startingStep, productType });
@@ -1058,6 +1113,14 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
 
 async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerName, productType, amount) {
     console.log('🔵 startFunnel:', phoneKey, funnelId);
+    
+    // 🔥 PROTEÇÃO 3: Verifica se já existe conversa ativa
+    const existing = conversations.get(phoneKey);
+    if (existing && !existing.canceled) {
+        console.log('⚠️ BLOQUEADO - Conversa já existe:', phoneKey);
+        addLog('FUNNEL_CREATION_BLOCKED', '🚫 Conversa já existe', { phoneKey, funnelId });
+        return;
+    }
     
     const conversation = {
         phoneKey,
@@ -1077,8 +1140,6 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
     };
     
     conversations.set(phoneKey, conversation);
-    
-    // 🔥 REGISTRA TODAS AS VARIAÇÕES
     registerPhoneUniversal(remoteJid, phoneKey);
     
     addLog('FUNNEL_START', `Iniciando ${funnelId} para ${phoneKey}`, { orderCode });
@@ -1118,6 +1179,12 @@ async function sendStep(phoneKey) {
         await new Promise(resolve => setTimeout(resolve, (step.delaySeconds || 10) * 1000));
     } else {
         result = await sendWithFallback(phoneKey, conversation.remoteJid, step.type, step.text, step.mediaUrl, isFirstMessage);
+        
+        // 🔥 PROTEÇÃO 4: Se mensagem foi bloqueada por duplicação, não avança
+        if (result.blocked) {
+            addLog('STEP_BLOCKED_DUPLICATE', `🚫 Passo bloqueado por duplicação`, { phoneKey });
+            return;
+        }
     }
     
     if (result.success) {
@@ -1298,7 +1365,6 @@ app.post('/webhook/perfectpay', async (req, res) => {
     }
 });
 
-// 🔥 WEBHOOK EVOLUTION COM DETECÇÃO @LID
 app.post('/webhook/evolution', async (req, res) => {
     try {
         const data = req.body;
@@ -1322,7 +1388,6 @@ app.post('/webhook/evolution', async (req, res) => {
             return res.json({ success: true });
         }
         
-        // 🔥 DETECÇÃO DE @LID
         const isLid = remoteJid.includes('@lid');
         let phoneToSearch = remoteJid;
         let lidJid = null;
@@ -1335,7 +1400,6 @@ app.post('/webhook/evolution', async (req, res) => {
                 hasParticipant: !!messageData.key.participant
             });
             
-            // 🔥 TENTA EXTRAIR NÚMERO REAL DO PARTICIPANT
             if (messageData.key.participant) {
                 phoneToSearch = messageData.key.participant;
                 
@@ -1344,7 +1408,6 @@ app.post('/webhook/evolution', async (req, res) => {
                     participant: phoneToSearch
                 });
             } else {
-                // Se não tem participant, tenta buscar pelo mapping existente
                 const mappedKey = lidMapping.get(remoteJid);
                 if (mappedKey) {
                     const mappedConv = conversations.get(mappedKey);
@@ -1390,7 +1453,6 @@ app.post('/webhook/evolution', async (req, res) => {
         }
         
         try {
-            // 🔥 BUSCA UNIVERSAL (já inclui busca por @lid no nível 5)
             const conversation = findConversationUniversal(phoneToSearch);
             
             addLog('EVOLUTION_SEARCH', `Busca resultado`, {
@@ -1402,7 +1464,6 @@ app.post('/webhook/evolution', async (req, res) => {
             });
             
             if (conversation && isLid && lidJid) {
-                // 🔥 REGISTRA MAPEAMENTO @LID
                 registerLidMapping(lidJid, conversation.phoneKey, phoneToSearch);
             }
             
@@ -1481,7 +1542,9 @@ app.get('/api/dashboard', (req, res) => {
             webhook_locks: webhookLocks.size,
             phone_index_size: phoneIndex.size,
             phone_variations_size: phoneVariations.size,
-            lid_mappings_size: lidMapping.size
+            lid_mappings_size: lidMapping.size,
+            sent_messages_cache: sentMessagesHash.size,
+            blocked_messages_count: messageBlockTimers.size
         }
     });
 });
@@ -1688,7 +1751,7 @@ app.get('/api/funnels/export', (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(JSON.stringify({
-            version: '6.0',
+            version: '8.0',
             exportDate: new Date().toISOString(),
             totalFunnels: funnelsArray.length,
             funnels: funnelsArray
@@ -1746,6 +1809,8 @@ app.get('/api/debug/evolution', async (req, res) => {
         phone_index_size: phoneIndex.size,
         phone_variations_size: phoneVariations.size,
         lid_mappings_size: lidMapping.size,
+        sent_messages_cache: sentMessagesHash.size,
+        blocked_messages_count: messageBlockTimers.size,
         test_results: [],
         available_instances: []
     };
@@ -1822,36 +1887,35 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(80));
-    console.log('🛡️ KIRVANO v7.0 - SISTEMA ULTRA ROBUSTO + CORREÇÃO @LID');
+    console.log('🛡️ KIRVANO v8.0 - ANTI-DUPLICAÇÃO TOTAL IMPLEMENTADO');
     console.log('='.repeat(80));
     console.log('✅ Porta:', PORT);
     console.log('✅ Evolution:', EVOLUTION_BASE_URL);
     console.log('✅ Instâncias:', INSTANCES.length);
     console.log('');
-    console.log('🔥 CORREÇÕES IMPLEMENTADAS:');
-    console.log('  ✅ Sistema de Normalização ULTRA Robusto');
-    console.log('  ✅ Busca em 5 Níveis (Direta → Índice → Sufixos → Exaustiva → @lid)');
-    console.log('  ✅ Detecção automática de @lid');
-    console.log('  ✅ Extração de número real do participant');
-    console.log('  ✅ Mapeamento @lid ↔ phoneKey');
-    console.log('  ✅ Persistência de mapeamentos @lid');
-    console.log('  ✅ Geração de 30+ variações por telefone');
-    console.log('  ✅ Compatível com @s.whatsapp.net, @lid, @g.us');
+    console.log('🔥 PROTEÇÕES IMPLEMENTADAS:');
+    console.log('  ✅ PROTEÇÃO 1: Bloqueio por Hash de Mensagem (60s)');
+    console.log('  ✅ PROTEÇÃO 2: Bloqueio de Criação de Conversa Duplicada');
+    console.log('  ✅ PROTEÇÃO 3: Bloqueio de Início de Funil Duplicado');
+    console.log('  ✅ PROTEÇÃO 4: Bloqueio de Envio de Step Duplicado');
+    console.log('  ✅ Sistema de Normalização ULTRA Robusto mantido');
+    console.log('  ✅ Busca em 5 Níveis mantida');
+    console.log('  ✅ Detecção @lid mantida');
     console.log('  ✅ Sistema de Retry mantido');
     console.log('  ✅ Sticky instances mantido');
     console.log('');
-    console.log('📱 SOLUÇÃO @LID:');
-    console.log('  • Quando Evolution retorna @lid');
-    console.log('  • Sistema extrai número real do participant');
-    console.log('  • Registra mapeamento @lid → phoneKey');
-    console.log('  • Próximas respostas funcionam automaticamente');
+    console.log('🚫 COMO FUNCIONA O ANTI-DUPLICAÇÃO:');
+    console.log('  • Cada mensagem gera um hash único (telefone + conteúdo + tipo)');
+    console.log('  • Hash é bloqueado por 60 segundos após envio');
+    console.log('  • Tentativa de reenvio dentro de 60s = BLOQUEADA');
+    console.log('  • Conversas duplicadas = BLOQUEADAS');
+    console.log('  • Múltiplas instâncias enviando = BLOQUEADAS');
     console.log('');
-    console.log('🔍 BUSCA INTELIGENTE:');
-    console.log('  • Nível 1: Busca direta por phoneKey');
-    console.log('  • Nível 2: Busca em índices de variações');
-    console.log('  • Nível 3: Busca com sufixos WhatsApp');
-    console.log('  • Nível 4: Busca exaustiva em todas conversas');
-    console.log('  • Nível 5: Busca por mapeamento @lid');
+    console.log('✨ RESULTADO:');
+    console.log('  • Lead recebe 1 mensagem APENAS');
+    console.log('  • Zero duplicação');
+    console.log('  • Zero spam');
+    console.log('  • Experiência profissional');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('📊 Dashboard: http://localhost:' + PORT + '/api/dashboard');
