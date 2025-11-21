@@ -51,6 +51,8 @@ const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09'
 let conversations = new Map();
 let phoneIndex = new Map();          // Índice principal
 let phoneVariations = new Map();     // Índice reverso ULTRA robusto
+let lidMapping = new Map();          // 🔥 NOVO: Mapeia @lid → phoneKey
+let phoneToLid = new Map();          // 🔥 NOVO: Mapeia phoneKey → @lid
 let stickyInstances = new Map();
 let pixTimeouts = new Map();
 let webhookLocks = new Map();
@@ -233,7 +235,36 @@ function registerPhoneUniversal(fullPhone, phoneKey) {
     });
 }
 
-// 🔥 FUNÇÃO 4: Busca conversa de QUALQUER formato (4 níveis de busca)
+// 🔥 NOVO: Função para registrar mapeamento @lid
+function registerLidMapping(lidJid, phoneKey, realNumber) {
+    if (!lidJid || !phoneKey) return;
+    
+    // Mapeia @lid → phoneKey
+    lidMapping.set(lidJid, phoneKey);
+    
+    // Mapeia phoneKey → @lid (reverso)
+    phoneToLid.set(phoneKey, lidJid);
+    
+    // Também registra variações do @lid
+    const lidCleaned = lidJid.split('@')[0].replace(/\D/g, '');
+    if (lidCleaned) {
+        lidMapping.set(lidCleaned, phoneKey);
+        lidMapping.set(lidCleaned + '@lid', phoneKey);
+    }
+    
+    console.log('🆔 Mapeamento @lid registrado:', {
+        lid: lidJid,
+        phoneKey: phoneKey,
+        realNumber: realNumber
+    });
+    
+    addLog('LID_MAPPING_REGISTERED', '🆔 Mapeamento @lid criado', {
+        lid: lidJid,
+        phoneKey: phoneKey
+    });
+}
+
+// 🔥 FUNÇÃO 4: Busca conversa de QUALQUER formato (5 níveis de busca + @lid)
 function findConversationUniversal(phone) {
     const phoneKey = normalizePhoneKey(phone);
     
@@ -336,21 +367,49 @@ function findConversationUniversal(phone) {
         }
     }
     
-    // NÃO ENCONTRADO após 4 níveis de busca
+    // ===== 🔥 NÍVEL 5: Busca por @lid mapping =====
+    console.log('🔍 NÍVEL 5: Testando mapeamento @lid...');
+    
+    // Se o telefone veio com @lid
+    if (String(phone).includes('@lid')) {
+        const mappedKey = lidMapping.get(phone);
+        if (mappedKey) {
+            conversation = conversations.get(mappedKey);
+            if (conversation) {
+                console.log('✅ NÍVEL 5: Encontrado via @lid mapping:', mappedKey, '←', phone);
+                return conversation;
+            }
+        }
+        
+        // Tenta sem o sufixo
+        const phoneCleaned = String(phone).split('@')[0];
+        const mappedKey2 = lidMapping.get(phoneCleaned);
+        if (mappedKey2) {
+            conversation = conversations.get(mappedKey2);
+            if (conversation) {
+                console.log('✅ NÍVEL 5: Encontrado via @lid limpo:', mappedKey2, '←', phoneCleaned);
+                return conversation;
+            }
+        }
+    }
+    
+    // NÃO ENCONTRADO após 5 níveis de busca
     console.log('❌ Conversa NÃO encontrada após busca ULTRA completa');
     console.log('📊 Debug completo:', {
         phoneKey,
         phoneOriginal: phone,
         variaçõesTentadas: variations.length,
         conversasAtivas: conversations.size,
+        lidMappings: lidMapping.size,
         primeiras5Conversas: Array.from(conversations.keys()).slice(0, 5),
         primeiras5Variações: variations.slice(0, 5)
     });
     
-    addLog('CONVERSATION_NOT_FOUND_ULTRA', `❌ Não encontrado após 4 níveis`, {
+    addLog('CONVERSATION_NOT_FOUND_ULTRA', `❌ Não encontrado após 5 níveis`, {
         phoneKey,
         variations: variations.length,
-        activeConversations: conversations.size
+        activeConversations: conversations.size,
+        lidMappings: lidMapping.size
     });
     
     return null;
@@ -435,6 +494,8 @@ async function saveConversationsToFile() {
             conversations: conversationsArray,
             phoneIndex: Array.from(phoneIndex.entries()),
             phoneVariations: Array.from(phoneVariations.entries()),
+            lidMapping: Array.from(lidMapping.entries()),
+            phoneToLid: Array.from(phoneToLid.entries()),
             stickyInstances: Array.from(stickyInstances.entries())
         }, null, 2));
         
@@ -471,13 +532,23 @@ async function loadConversationsFromFile() {
             parsed.phoneVariations.forEach(([key, value]) => phoneVariations.set(key, value));
         }
         
+        lidMapping.clear();
+        if (parsed.lidMapping) {
+            parsed.lidMapping.forEach(([key, value]) => lidMapping.set(key, value));
+        }
+        
+        phoneToLid.clear();
+        if (parsed.phoneToLid) {
+            parsed.phoneToLid.forEach(([key, value]) => phoneToLid.set(key, value));
+        }
+        
         stickyInstances.clear();
         if (parsed.stickyInstances) {
             parsed.stickyInstances.forEach(([key, value]) => stickyInstances.set(key, value));
         }
         
         addLog('DATA_LOAD', 'Conversas carregadas: ' + parsed.conversations.length);
-        addLog('DATA_LOAD', 'Índices carregados: ' + phoneIndex.size + ' phoneIndex, ' + phoneVariations.size + ' variations');
+        addLog('DATA_LOAD', 'Índices: phoneIndex=' + phoneIndex.size + ', variations=' + phoneVariations.size + ', @lid=' + lidMapping.size);
         return true;
     } catch (error) {
         addLog('DATA_LOAD_ERROR', 'Nenhuma conversa anterior');
@@ -824,7 +895,7 @@ async function sendAudio(remoteJid, audioUrl, instanceName) {
     }
 }
 
-// ============ ENVIO COM RETRY (MANTIDO IGUAL - FUNCIONA BEM) ============
+// ============ ENVIO COM RETRY ============
 async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFirstMessage = false) {
     let instancesToTry = [...INSTANCES];
     const stickyInstance = stickyInstances.get(phoneKey);
@@ -1227,6 +1298,7 @@ app.post('/webhook/perfectpay', async (req, res) => {
     }
 });
 
+// 🔥 WEBHOOK EVOLUTION COM DETECÇÃO @LID
 app.post('/webhook/evolution', async (req, res) => {
     try {
         const data = req.body;
@@ -1250,19 +1322,60 @@ app.post('/webhook/evolution', async (req, res) => {
             return res.json({ success: true });
         }
         
-        const incomingPhone = remoteJid.split('@')[0];
+        // 🔥 DETECÇÃO DE @LID
+        const isLid = remoteJid.includes('@lid');
+        let phoneToSearch = remoteJid;
+        let lidJid = null;
+        
+        if (isLid) {
+            lidJid = remoteJid;
+            
+            addLog('LID_DETECTED', '🔴 @lid detectado!', { 
+                lid: remoteJid,
+                hasParticipant: !!messageData.key.participant
+            });
+            
+            // 🔥 TENTA EXTRAIR NÚMERO REAL DO PARTICIPANT
+            if (messageData.key.participant) {
+                phoneToSearch = messageData.key.participant;
+                
+                addLog('LID_PARTICIPANT_FOUND', '✅ Número real extraído do participant', { 
+                    lid: remoteJid,
+                    participant: phoneToSearch
+                });
+            } else {
+                // Se não tem participant, tenta buscar pelo mapping existente
+                const mappedKey = lidMapping.get(remoteJid);
+                if (mappedKey) {
+                    const mappedConv = conversations.get(mappedKey);
+                    if (mappedConv) {
+                        phoneToSearch = mappedConv.remoteJid;
+                        addLog('LID_MAPPING_USED', '✅ Usando mapping @lid existente', {
+                            lid: remoteJid,
+                            mappedKey: mappedKey,
+                            remoteJid: phoneToSearch
+                        });
+                    }
+                }
+            }
+        }
+        
+        const incomingPhone = phoneToSearch.split('@')[0];
         const phoneKey = normalizePhoneKey(incomingPhone);
         
         console.log('🟦 Webhook Evolution:', {
             remoteJid,
+            isLid,
+            phoneToSearch,
             incomingPhone,
             phoneKey,
             text: messageText.substring(0, 30)
         });
         
-        addLog('EVOLUTION_MESSAGE', `Mensagem recebida`, {
+        addLog('EVOLUTION_MESSAGE', `Mensagem recebida${isLid ? ' (@lid)' : ''}`, {
             remoteJid,
             phoneKey,
+            isLid,
             text: messageText.substring(0, 50)
         });
         
@@ -1277,15 +1390,21 @@ app.post('/webhook/evolution', async (req, res) => {
         }
         
         try {
-            // 🔥 BUSCA UNIVERSAL - ENCONTRA INDEPENDENTE DO FORMATO
-            const conversation = findConversationUniversal(incomingPhone);
+            // 🔥 BUSCA UNIVERSAL (já inclui busca por @lid no nível 5)
+            const conversation = findConversationUniversal(phoneToSearch);
             
             addLog('EVOLUTION_SEARCH', `Busca resultado`, {
                 found: conversation ? true : false,
                 phoneKey: phoneKey,
                 conversationKey: conversation ? conversation.phoneKey : null,
-                waiting: conversation ? conversation.waiting_for_response : null
+                waiting: conversation ? conversation.waiting_for_response : null,
+                isLid: isLid
             });
+            
+            if (conversation && isLid && lidJid) {
+                // 🔥 REGISTRA MAPEAMENTO @LID
+                registerLidMapping(lidJid, conversation.phoneKey, phoneToSearch);
+            }
             
             if (!conversation || conversation.canceled || conversation.pixWaiting) {
                 addLog('EVOLUTION_IGNORED', 'Conversa cancelada/inexistente/pixWaiting', { phoneKey });
@@ -1302,10 +1421,11 @@ app.post('/webhook/evolution', async (req, res) => {
             
             console.log('✅✅✅ RESPOSTA VÁLIDA - Avançando conversa');
             
-            addLog('CLIENT_REPLY', `✅ Resposta processada`, { 
+            addLog('CLIENT_REPLY', `✅ Resposta processada${isLid ? ' (@lid)' : ''}`, { 
                 phoneKey, 
                 text: messageText.substring(0, 50),
-                stepIndex: conversation.stepIndex
+                stepIndex: conversation.stepIndex,
+                isLid: isLid
             });
             
             conversation.waiting_for_response = false;
@@ -1360,7 +1480,8 @@ app.get('/api/dashboard', (req, res) => {
             instance_distribution: instanceUsage,
             webhook_locks: webhookLocks.size,
             phone_index_size: phoneIndex.size,
-            phone_variations_size: phoneVariations.size
+            phone_variations_size: phoneVariations.size,
+            lid_mappings_size: lidMapping.size
         }
     });
 });
@@ -1386,7 +1507,8 @@ app.get('/api/conversations', (req, res) => {
         completed: conv.completed || false,
         hasError: conv.hasError || false,
         errorMessage: conv.errorMessage,
-        transferredFromPix: conv.transferredFromPix || false
+        transferredFromPix: conv.transferredFromPix || false,
+        hasLidMapping: phoneToLid.has(phoneKey)
     }));
     
     conversationsList.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -1623,6 +1745,7 @@ app.get('/api/debug/evolution', async (req, res) => {
         webhook_locks_active: webhookLocks.size,
         phone_index_size: phoneIndex.size,
         phone_variations_size: phoneVariations.size,
+        lid_mappings_size: lidMapping.size,
         test_results: [],
         available_instances: []
     };
@@ -1694,37 +1817,41 @@ async function initializeData() {
     console.log('✅ Inicialização concluída');
     console.log('📊 Funis:', funis.size);
     console.log('💬 Conversas:', conversations.size);
-    console.log('📇 Índices: phoneIndex=' + phoneIndex.size + ', phoneVariations=' + phoneVariations.size);
+    console.log('📇 Índices: phoneIndex=' + phoneIndex.size + ', phoneVariations=' + phoneVariations.size + ', @lid=' + lidMapping.size);
 }
 
 app.listen(PORT, async () => {
     console.log('='.repeat(80));
-    console.log('🛡️ KIRVANO v6.0 - SISTEMA ULTRA ROBUSTO');
+    console.log('🛡️ KIRVANO v7.0 - SISTEMA ULTRA ROBUSTO + CORREÇÃO @LID');
     console.log('='.repeat(80));
     console.log('✅ Porta:', PORT);
     console.log('✅ Evolution:', EVOLUTION_BASE_URL);
     console.log('✅ Instâncias:', INSTANCES.length);
     console.log('');
-    console.log('🔥 MELHORIAS IMPLEMENTADAS:');
+    console.log('🔥 CORREÇÕES IMPLEMENTADAS:');
     console.log('  ✅ Sistema de Normalização ULTRA Robusto');
-    console.log('  ✅ Busca em 4 Níveis (Direta → Índice → Sufixos → Exaustiva)');
+    console.log('  ✅ Busca em 5 Níveis (Direta → Índice → Sufixos → Exaustiva → @lid)');
+    console.log('  ✅ Detecção automática de @lid');
+    console.log('  ✅ Extração de número real do participant');
+    console.log('  ✅ Mapeamento @lid ↔ phoneKey');
+    console.log('  ✅ Persistência de mapeamentos @lid');
     console.log('  ✅ Geração de 30+ variações por telefone');
-    console.log('  ✅ Registro automático de TODAS variações');
     console.log('  ✅ Compatível com @s.whatsapp.net, @lid, @g.us');
-    console.log('  ✅ Tolerante a formatos com/sem 55, com/sem 9');
-    console.log('  ✅ Sistema de Retry mantido (fallback entre instâncias)');
-    console.log('  ✅ Sticky instances mantido (1 lead = 1 instância preferencial)');
+    console.log('  ✅ Sistema de Retry mantido');
+    console.log('  ✅ Sticky instances mantido');
     console.log('');
-    console.log('📱 NORMALIZAÇÃO:');
-    console.log('  • PerfectPay envia: 8899880565');
-    console.log('  • Evolution retorna: 5588990429388@s.whatsapp.net');
-    console.log('  • Sistema encontra: INDEPENDENTE do formato!');
+    console.log('📱 SOLUÇÃO @LID:');
+    console.log('  • Quando Evolution retorna @lid');
+    console.log('  • Sistema extrai número real do participant');
+    console.log('  • Registra mapeamento @lid → phoneKey');
+    console.log('  • Próximas respostas funcionam automaticamente');
     console.log('');
     console.log('🔍 BUSCA INTELIGENTE:');
     console.log('  • Nível 1: Busca direta por phoneKey');
     console.log('  • Nível 2: Busca em índices de variações');
     console.log('  • Nível 3: Busca com sufixos WhatsApp');
     console.log('  • Nível 4: Busca exaustiva em todas conversas');
+    console.log('  • Nível 5: Busca por mapeamento @lid');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('📊 Dashboard: http://localhost:' + PORT + '/api/dashboard');
