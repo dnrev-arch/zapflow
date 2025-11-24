@@ -252,10 +252,11 @@
             renderSteps();
         }
 
+        // ✅ CORRIGIDO: Não chama mais renderSteps() a cada letra digitada
         function updateStep(index, field, value) {
             if (!currentFunnelData.steps[index]) return;
             currentFunnelData.steps[index][field] = value;
-            renderSteps();
+            // ❌ REMOVIDO: renderSteps(); - Isso causava o bug!
         }
 
         function getStepIcon(type) {
@@ -268,29 +269,29 @@
             return names[type] || 'Mensagem';
         }
 
-        // ✅ ÚNICA MUDANÇA: CORRIGIDO currentFunnel → currentFunnelData
+        // ✅ CORRIGIDO: Função moveStep com todas as correções
         async function moveStep(index, direction) {
-            if (!currentFunnelData) {  // ✅ CORRIGIDO
+            if (!currentFunnelData) {
                 console.error('❌ Nenhum funil selecionado');
                 return;
             }
             
             const toIndex = direction === 'up' ? index - 1 : index + 1;
             
-            if (toIndex < 0 || toIndex >= currentFunnelData.steps.length) {  // ✅ CORRIGIDO
+            if (toIndex < 0 || toIndex >= currentFunnelData.steps.length) {
                 console.warn('⚠️ Não é possível mover nesta direção');
                 return;
             }
             
             console.log('🔄 Movendo passo...', { 
-                funnelId: currentFunnelData.id,  // ✅ CORRIGIDO
+                funnelId: currentFunnelData.id,
                 fromIndex: index, 
                 toIndex, 
                 direction 
             });
             
             try {
-                const response = await fetch(`/api/funnels/${currentFunnelData.id}/move-step`, {  // ✅ CORRIGIDO
+                const response = await fetch(`/api/funnels/${currentFunnelData.id}/move-step`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ fromIndex: index, direction })
@@ -301,8 +302,8 @@
                 console.log('📥 Resposta:', result);
                 
                 if (result.success) {
-                    currentFunnelData.steps = result.data.steps;  // ✅ CORRIGIDO
-                    funnelsData[currentFunnelData.id].steps = result.data.steps;  // ✅ CORRIGIDO
+                    currentFunnelData.steps = result.data.steps;
+                    funnelsData[currentFunnelData.id].steps = result.data.steps;
                     editingStepIndex = -1;
                     renderSteps();
                     console.log('✅ Sucesso!');
