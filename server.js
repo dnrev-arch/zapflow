@@ -62,14 +62,44 @@ let logs = [];
 let funis = new Map();
 let lastSuccessfulInstanceIndex = -1;
 
-// 🔥 NOVO: Sistema de bloqueio de mensagens duplicadas
-let sentMessagesHash = new Map(); // phoneKey -> Set de hashes
-let messageBlockTimers = new Map(); // hash -> timestamp
+// 🔥 Sistema de bloqueio de mensagens duplicadas
+let sentMessagesHash = new Map();
+let messageBlockTimers = new Map();
+
+// ============ 💰 SISTEMA DE VARIÁVEIS DINÂMICAS ============
+
+function replaceVariables(text, conversation) {
+    if (!text || !conversation) return text;
+    
+    let result = text;
+    
+    // {PIX_LINK} - Link do PIX gerado
+    if (conversation.pixLink) {
+        result = result.replace(/\{PIX_LINK\}/g, conversation.pixLink);
+    }
+    
+    // {NOME_CLIENTE} - Nome do cliente
+    if (conversation.customerName) {
+        result = result.replace(/\{NOME_CLIENTE\}/g, conversation.customerName);
+        result = result.replace(/\{NOME\}/g, conversation.customerName);
+    }
+    
+    // {VALOR} - Valor da compra
+    if (conversation.amount) {
+        result = result.replace(/\{VALOR\}/g, conversation.amount);
+    }
+    
+    // {PRODUTO} - Tipo do produto
+    if (conversation.productType) {
+        result = result.replace(/\{PRODUTO\}/g, conversation.productType);
+    }
+    
+    return result;
+}
 
 // ============ SISTEMA DE HASH DE MENSAGENS ============
 
 function generateMessageHash(phoneKey, content, type) {
-    // Cria um hash único baseado em: telefone + conteúdo + tipo
     const data = `${phoneKey}|${content}|${type}`;
     return crypto.createHash('md5').update(data).digest('hex');
 }
@@ -77,7 +107,6 @@ function generateMessageHash(phoneKey, content, type) {
 function isMessageBlocked(phoneKey, content, type) {
     const hash = generateMessageHash(phoneKey, content, type);
     
-    // Verifica se já foi enviado recentemente
     const lastSent = messageBlockTimers.get(hash);
     if (lastSent) {
         const timeSince = Date.now() - lastSent;
@@ -97,10 +126,8 @@ function isMessageBlocked(phoneKey, content, type) {
 function registerSentMessage(phoneKey, content, type) {
     const hash = generateMessageHash(phoneKey, content, type);
     
-    // Registra timestamp do envio
     messageBlockTimers.set(hash, Date.now());
     
-    // Adiciona ao set de mensagens enviadas do telefone
     if (!sentMessagesHash.has(phoneKey)) {
         sentMessagesHash.set(phoneKey, new Set());
     }
@@ -118,7 +145,6 @@ function registerSentMessage(phoneKey, content, type) {
     });
 }
 
-// Limpar mensagens antigas periodicamente (a cada 2 minutos)
 setInterval(() => {
     const now = Date.now();
     let cleanedCount = 0;
@@ -1009,7 +1035,7 @@ async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFir
 
 // ============ ORQUESTRAÇÃO ============
 
-async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, amount) {
+async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, amount, pixLink, pixQrCode) {
     console.log('🔴 createPixWaitingConversation:', phoneKey);
     
     // 🔥 PROTEÇÃO 2: Verifica se já existe conversa ativa
@@ -1029,6 +1055,8 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
         customerName,
         productType,
         amount,
+        pixLink: pixLink || null, // 💰 NOVO
+        pixQrCode: pixQrCode || null, // 💰 NOVO
         waiting_for_response: false,
         pixWaiting: true,
         createdAt: new Date(),
@@ -1041,7 +1069,7 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
     conversations.set(phoneKey, conversation);
     registerPhoneUniversal(remoteJid, phoneKey);
     
-    addLog('PIX_WAITING_CREATED', `PIX em espera para ${phoneKey}`, { orderCode, productType });
+    addLog('PIX_WAITING_CREATED', `PIX em espera para ${phoneKey}`, { orderCode, productType, pixLink });
     
     const timeout = setTimeout(async () => {
         const conv = conversations.get(phoneKey);
@@ -1064,6 +1092,10 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
     console.log('🟢 transferPixToApproved:', phoneKey);
     
     const pixConv = conversations.get(phoneKey);
+    
+    // 💰 PRESERVA O LINK DO PIX ORIGINAL
+    const pixLink = pixConv ? pixConv.pixLink : null;
+    const pixQrCode = pixConv ? pixConv.pixQrCode : null;
     
     if (pixConv) {
         pixConv.canceled = true;
@@ -1094,6 +1126,8 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
         customerName,
         productType,
         amount,
+        pixLink: pixLink, // 💰 PRESERVA LINK
+        pixQrCode: pixQrCode, // 💰 PRESERVA QR CODE
         waiting_for_response: false,
         createdAt: new Date(),
         lastSystemMessage: null,
@@ -1111,7 +1145,7 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
     await sendStep(phoneKey);
 }
 
-async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerName, productType, amount) {
+async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerName, productType, amount, pixLink, pixQrCode) {
     console.log('🔵 startFunnel:', phoneKey, funnelId);
     
     // 🔥 PROTEÇÃO 3: Verifica se já existe conversa ativa
@@ -1131,6 +1165,8 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
         customerName,
         productType,
         amount,
+        pixLink: pixLink || null, // 💰 NOVO
+        pixQrCode: pixQrCode || null, // 💰 NOVO
         waiting_for_response: false,
         createdAt: new Date(),
         lastSystemMessage: null,
@@ -1178,7 +1214,11 @@ async function sendStep(phoneKey) {
     if (step.type === 'delay') {
         await new Promise(resolve => setTimeout(resolve, (step.delaySeconds || 10) * 1000));
     } else {
-        result = await sendWithFallback(phoneKey, conversation.remoteJid, step.type, step.text, step.mediaUrl, isFirstMessage);
+        // 💰 SUBSTITUI VARIÁVEIS ANTES DE ENVIAR
+        const finalText = replaceVariables(step.text, conversation);
+        const finalMediaUrl = replaceVariables(step.mediaUrl, conversation);
+        
+        result = await sendWithFallback(phoneKey, conversation.remoteJid, step.type, finalText, finalMediaUrl, isFirstMessage);
         
         // 🔥 PROTEÇÃO 4: Se mensagem foi bloqueada por duplicação, não avança
         if (result.blocked) {
@@ -1248,6 +1288,10 @@ app.post('/webhook/kirvano', async (req, res) => {
         const customerPhone = data.customer?.phone_number || '';
         const totalPrice = data.total_price || 'R$ 0,00';
         
+        // 💰 CAPTURA LINK DO PIX (Kirvano)
+        const pixLink = data.payment?.pix_url || data.payment?.checkout_url || data.payment?.payment_url || null;
+        const pixQrCode = data.payment?.qrcode_image || data.payment?.pix_qrcode || null;
+        
         const phoneKey = normalizePhoneKey(customerPhone);
         if (!phoneKey || phoneKey.length !== 8) {
             return res.json({ success: false, message: 'Telefone inválido' });
@@ -1259,7 +1303,13 @@ app.post('/webhook/kirvano', async (req, res) => {
         const productId = data.product_id || data.products?.[0]?.id;
         const productType = PRODUCT_MAPPING[productId] || 'CS';
         
-        addLog('KIRVANO_EVENT', `${event} - ${customerName}`, { orderCode, phoneKey, method, productType });
+        addLog('KIRVANO_EVENT', `${event} - ${customerName}`, { 
+            orderCode, 
+            phoneKey, 
+            method, 
+            productType,
+            pixLink: pixLink ? 'CAPTURADO' : 'N/A' 
+        });
         
         const isApproved = event.includes('APPROVED') || event.includes('PAID') || status === 'APPROVED';
         const isPix = method.includes('PIX') || event.includes('PIX');
@@ -1275,14 +1325,14 @@ app.post('/webhook/kirvano', async (req, res) => {
                     clearTimeout(pixTimeout.timeout);
                     pixTimeouts.delete(phoneKey);
                 }
-                await startFunnel(phoneKey, remoteJid, productType + '_APROVADA', orderCode, customerName, productType, totalPrice);
+                await startFunnel(phoneKey, remoteJid, productType + '_APROVADA', orderCode, customerName, productType, totalPrice, pixLink, pixQrCode);
             }
         } else if (isPix && event.includes('GENERATED')) {
             const existingConv = findConversationUniversal(customerPhone);
             if (existingConv && !existingConv.canceled) {
                 return res.json({ success: true, message: 'Conversa já existe' });
             }
-            await createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, totalPrice);
+            await createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, totalPrice, pixLink, pixQrCode);
         }
         
         res.json({ success: true, phoneKey });
@@ -1309,6 +1359,10 @@ app.post('/webhook/perfectpay', async (req, res) => {
         const totalPrice = 'R$ ' + (saleAmount / 100).toFixed(2).replace('.', ',');
         const paymentType = parseInt(data.payment_type_enum || 0);
         
+        // 💰 CAPTURA LINK DO PIX (PerfectPay)
+        const pixLink = data.checkout_url || data.pix_url || data.payment_url || null;
+        const pixQrCode = data.pix_qrcode || data.pix_emv || null;
+        
         const phoneKey = normalizePhoneKey(customerPhone);
         
         if (!phoneKey || phoneKey.length !== 8) {
@@ -1325,7 +1379,8 @@ app.post('/webhook/perfectpay', async (req, res) => {
             saleCode, 
             phoneKey, 
             productType,
-            paymentType
+            paymentType,
+            pixLink: pixLink ? 'CAPTURADO' : 'N/A'
         });
         
         if (statusEnum === 2) {
@@ -1339,7 +1394,7 @@ app.post('/webhook/perfectpay', async (req, res) => {
                     clearTimeout(pixTimeout.timeout);
                     pixTimeouts.delete(phoneKey);
                 }
-                await startFunnel(phoneKey, remoteJid, productType + '_APROVADA', saleCode, customerName, productType, totalPrice);
+                await startFunnel(phoneKey, remoteJid, productType + '_APROVADA', saleCode, customerName, productType, totalPrice, pixLink, pixQrCode);
             }
             
             res.json({ success: true, phoneKey, productType, action: 'approved' });
@@ -1351,7 +1406,7 @@ app.post('/webhook/perfectpay', async (req, res) => {
                 return res.json({ success: true, message: 'Conversa já existe' });
             }
             
-            await createPixWaitingConversation(phoneKey, remoteJid, saleCode, customerName, productType, totalPrice);
+            await createPixWaitingConversation(phoneKey, remoteJid, saleCode, customerName, productType, totalPrice, pixLink, pixQrCode);
             
             res.json({ success: true, phoneKey, productType, action: 'pix_waiting' });
         }
@@ -1560,6 +1615,7 @@ app.get('/api/conversations', (req, res) => {
         stepIndex: conv.stepIndex,
         waiting_for_response: conv.waiting_for_response,
         pixWaiting: conv.pixWaiting || false,
+        pixLink: conv.pixLink || null, // 💰 NOVO
         createdAt: conv.createdAt,
         lastSystemMessage: conv.lastSystemMessage,
         lastReply: conv.lastReply,
@@ -1751,7 +1807,7 @@ app.get('/api/funnels/export', (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(JSON.stringify({
-            version: '8.0',
+            version: '8.1',
             exportDate: new Date().toISOString(),
             totalFunnels: funnelsArray.length,
             funnels: funnelsArray
@@ -1887,7 +1943,7 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(80));
-    console.log('🛡️ KIRVANO v8.0 - ANTI-DUPLICAÇÃO TOTAL IMPLEMENTADO');
+    console.log('🛡️ KIRVANO v8.1 - COM SISTEMA PIX LINK');
     console.log('='.repeat(80));
     console.log('✅ Porta:', PORT);
     console.log('✅ Evolution:', EVOLUTION_BASE_URL);
@@ -1898,24 +1954,18 @@ app.listen(PORT, async () => {
     console.log('  ✅ PROTEÇÃO 2: Bloqueio de Criação de Conversa Duplicada');
     console.log('  ✅ PROTEÇÃO 3: Bloqueio de Início de Funil Duplicado');
     console.log('  ✅ PROTEÇÃO 4: Bloqueio de Envio de Step Duplicado');
-    console.log('  ✅ Sistema de Normalização ULTRA Robusto mantido');
-    console.log('  ✅ Busca em 5 Níveis mantida');
-    console.log('  ✅ Detecção @lid mantida');
-    console.log('  ✅ Sistema de Retry mantido');
-    console.log('  ✅ Sticky instances mantido');
     console.log('');
-    console.log('🚫 COMO FUNCIONA O ANTI-DUPLICAÇÃO:');
-    console.log('  • Cada mensagem gera um hash único (telefone + conteúdo + tipo)');
-    console.log('  • Hash é bloqueado por 60 segundos após envio');
-    console.log('  • Tentativa de reenvio dentro de 60s = BLOQUEADA');
-    console.log('  • Conversas duplicadas = BLOQUEADAS');
-    console.log('  • Múltiplas instâncias enviando = BLOQUEADAS');
+    console.log('💰 NOVIDADES:');
+    console.log('  ✅ Sistema de PIX Link (Kirvano + PerfectPay)');
+    console.log('  ✅ Variáveis dinâmicas: {PIX_LINK}, {NOME_CLIENTE}, {VALOR}');
+    console.log('  ✅ Reenvio do MESMO link PIX gerado');
     console.log('');
-    console.log('✨ RESULTADO:');
-    console.log('  • Lead recebe 1 mensagem APENAS');
-    console.log('  • Zero duplicação');
-    console.log('  • Zero spam');
-    console.log('  • Experiência profissional');
+    console.log('📝 COMO USAR:');
+    console.log('  • No texto do step, digite: {PIX_LINK}');
+    console.log('  • Exemplo: "Aqui está seu PIX: {PIX_LINK}"');
+    console.log('  • O sistema substitui automaticamente pelo link real');
+    console.log('  • Funciona em QUALQUER step do funil');
+    console.log('  • Outras variáveis: {NOME_CLIENTE}, {VALOR}, {PRODUTO}');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('📊 Dashboard: http://localhost:' + PORT + '/api/dashboard');
