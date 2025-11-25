@@ -1360,8 +1360,8 @@ app.post('/webhook/perfectpay', async (req, res) => {
         const paymentType = parseInt(data.payment_type_enum || 0);
         
         // 💰 CAPTURA LINK DO PIX (PerfectPay)
-        const pixLink = data.checkout_url || data.pix_url || data.payment_url || null;
-        const pixQrCode = data.pix_qrcode || data.pix_emv || null;
+        const pixLink = data.billet_url || data.checkout_url || data.pix_url || data.payment_url || null;
+        const pixQrCode = data.billet_number || data.pix_qrcode || data.pix_emv || null;
         
         const phoneKey = normalizePhoneKey(customerPhone);
         
