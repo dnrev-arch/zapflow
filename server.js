@@ -97,15 +97,18 @@ function replaceVariables(text, conversation) {
     return result;
 }
 
-// ============ SISTEMA DE HASH DE MENSAGENS ============
+// ============ 🔥 SISTEMA DE HASH MELHORADO ============
 
-function generateMessageHash(phoneKey, content, type) {
-    const data = `${phoneKey}|${content}|${type}`;
+function generateMessageHashImproved(phoneKey, step, conversation) {
+    // Gera hash ANTES de substituir variáveis
+    // Usa: phoneKey + tipo + template original (sem variáveis substituídas)
+    const baseContent = step.text || step.mediaUrl || '';
+    const data = `${phoneKey}|${step.type}|${baseContent}|${step.id}`;
     return crypto.createHash('md5').update(data).digest('hex');
 }
 
-function isMessageBlocked(phoneKey, content, type) {
-    const hash = generateMessageHash(phoneKey, content, type);
+function isMessageBlocked(phoneKey, step, conversation) {
+    const hash = generateMessageHashImproved(phoneKey, step, conversation);
     
     const lastSent = messageBlockTimers.get(hash);
     if (lastSent) {
@@ -114,7 +117,8 @@ function isMessageBlocked(phoneKey, content, type) {
             console.log(`🚫 MENSAGEM BLOQUEADA - Enviada há ${Math.round(timeSince/1000)}s`, {
                 phoneKey,
                 hash: hash.substring(0, 8),
-                content: String(content).substring(0, 30)
+                stepId: step.id,
+                type: step.type
             });
             return true;
         }
@@ -123,8 +127,8 @@ function isMessageBlocked(phoneKey, content, type) {
     return false;
 }
 
-function registerSentMessage(phoneKey, content, type) {
-    const hash = generateMessageHash(phoneKey, content, type);
+function registerSentMessage(phoneKey, step, conversation) {
+    const hash = generateMessageHashImproved(phoneKey, step, conversation);
     
     messageBlockTimers.set(hash, Date.now());
     
@@ -136,12 +140,14 @@ function registerSentMessage(phoneKey, content, type) {
     console.log('✅ Mensagem registrada no bloqueio', {
         phoneKey,
         hash: hash.substring(0, 8),
+        stepId: step.id,
         total: sentMessagesHash.get(phoneKey).size
     });
     
     addLog('MESSAGE_REGISTERED', `Mensagem bloqueada por 60s`, {
         phoneKey,
-        hash: hash.substring(0, 8)
+        hash: hash.substring(0, 8),
+        stepId: step.id
     });
 }
 
@@ -624,54 +630,62 @@ setInterval(async () => {
     await saveConversationsToFile();
 }, 30000);
 
-// ============ FUNIS PADRÃO ============
+// ============ 🔧 FUNIS CORRIGIDOS (SEM IDS DUPLICADOS) ============
 const defaultFunnels = {
     'CS_APROVADA': {
         id: 'CS_APROVADA',
         name: 'CS - Compra Aprovada',
         steps: [
             {
-                id: 'step_0',
-                type: 'text',
-                text: 'Parabéns! Seu pedido foi aprovado. Bem-vindo ao CS!',
-                waitForReply: true
-            },
-            {
                 id: 'step_1',
-                type: 'text',
-                text: 'Obrigado pela resposta! Agora me confirma se recebeu o acesso ao curso por email?',
+                type: 'audio',
+                text: '',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/11/1760064923462120438-321585629761702-1.mp3',
                 waitForReply: true
             },
             {
                 id: 'step_2',
                 type: 'text',
-                text: 'Perfeito! Lembre-se de acessar nossa plataforma. Qualquer dúvida, estamos aqui!'
+                text: 'Posso te colocar no Grupo e mandar o seu acesso VIP por aqui mesmo amor? 😍',
+                mediaUrl: '',
+                waitForReply: true,
+                showTyping: true,
+                delayBefore: '18'
             },
             {
                 id: 'step_3',
-                type: 'delay',
-                delaySeconds: 420
+                type: 'text',
+                text: 'Clica aqui que a Marina te coloca agora la dentro 👇🏻\n\nhttps://t.me/Marina_Talbot\n',
+                mediaUrl: '',
+                waitForReply: false,
+                showTyping: true,
+                delayBefore: '19'
             },
             {
                 id: 'step_4',
                 type: 'text',
-                text: 'Já está conseguindo acessar o conteúdo? Precisa de alguma ajuda?',
-                waitForReply: true
+                text: 'Caso você não esteja conseguindo digitar agora, só aguardar q já já libera pra você ta bom? é pq vc acabou de entrar, aí é normal',
+                mediaUrl: '',
+                waitForReply: true,
+                showTyping: true,
+                delayBefore: '10'
             },
             {
                 id: 'step_5',
-                type: 'text',
-                text: 'Ótimo! Aproveite o conteúdo e bons estudos!'
+                type: 'delay',
+                text: '',
+                mediaUrl: '',
+                waitForReply: false,
+                delaySeconds: '450'
             },
             {
                 id: 'step_6',
-                type: 'delay',
-                delaySeconds: 1500
-            },
-            {
-                id: 'step_7',
-                type: 'text',
-                text: 'Lembre-se de que nosso suporte está sempre disponível para ajudar você!'
+                type: 'audio',
+                text: '',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/11/1764027713284340189-337817154416728.mp3',
+                waitForReply: false,
+                showTyping: true,
+                delayBefore: '11'
             }
         ]
     },
@@ -680,41 +694,130 @@ const defaultFunnels = {
         name: 'CS - PIX Pendente',
         steps: [
             {
-                id: 'step_0',
-                type: 'text',
-                text: 'Seu PIX foi gerado! Aguardamos o pagamento para liberar o acesso ao CS.',
-                waitForReply: true
-            },
-            {
                 id: 'step_1',
-                type: 'text',
-                text: 'Obrigado pelo contato! Me confirma que está com dificuldades no pagamento?',
+                type: 'audio',
+                text: '',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/10/1760471702347619808-323251706671257.ogg',
                 waitForReply: true
             },
             {
                 id: 'step_2',
                 type: 'text',
-                text: 'Se precisar de ajuda com o pagamento, nossa equipe está disponível!'
+                text: 'Ok, pera...',
+                mediaUrl: '',
+                waitForReply: false,
+                delayBefore: '12',
+                showTyping: true
             },
             {
                 id: 'step_3',
-                type: 'delay',
-                delaySeconds: 1500
+                type: 'audio',
+                text: '',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/11/1764018944619274698-337781185486948.mp3',
+                waitForReply: true,
+                showTyping: true,
+                delayBefore: '16'
             },
             {
                 id: 'step_4',
-                type: 'text',
-                text: 'Ainda não identificamos seu pagamento. Lembre-se que o PIX tem validade limitada.'
+                type: 'audio',
+                text: '',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/11/1764019424425458851-337783148159081.mp3',
+                waitForReply: true,
+                showTyping: true,
+                delayBefore: '17'
             },
             {
                 id: 'step_5',
-                type: 'delay',
-                delaySeconds: 1500
+                type: 'text',
+                text: 'Também não apareceu sua foto ainda... acho que você não salvou, por isso não tô conseguindo',
+                mediaUrl: '',
+                waitForReply: false,
+                showTyping: true,
+                delayBefore: '12'
             },
             {
                 id: 'step_6',
+                type: 'audio',
+                text: '',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/11/1764019487798431007-337783551610945.mp3',
+                waitForReply: false,
+                showTyping: true,
+                delayBefore: '16'
+            },
+            {
+                id: 'step_7',
                 type: 'text',
-                text: 'PIX vencido! Entre em contato conosco para gerar um novo.'
+                text: 'vou te mandar o link aqui do pix que você gerou. Abre pra você pegar ele e finalizar o pagamento amor 👇🏼👇🏼\n\n{PIX_LINK}',
+                mediaUrl: '',
+                waitForReply: false,
+                delayBefore: '14',
+                showTyping: true
+            },
+            {
+                id: 'step_8',
+                type: 'audio',
+                text: '',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/11/1764217227275805264-338593136349273.mp3',
+                delayBefore: '16',
+                showTyping: true,
+                waitForReply: true
+            },
+            {
+                id: 'step_9',
+                type: 'delay',
+                text: '',
+                mediaUrl: '',
+                delaySeconds: '220',
+                waitForReply: false
+            },
+            {
+                id: 'step_10',
+                type: 'image+text',
+                text: 'As meninas já estão te esperando 🤭🤭🤭',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/09/Design-sem-nome-9.png',
+                waitForReply: true,
+                showTyping: true,
+                delayBefore: '18'
+            },
+            {
+                id: 'step_11',
+                type: 'delay',
+                text: '',
+                mediaUrl: '',
+                waitForReply: false,
+                delaySeconds: '590'
+            },
+            {
+                id: 'step_12',
+                type: 'image+text',
+                text: '\nAmor vi que ainda não pagou o valor..\n\nMas como as meninas do grupo gostaram de você vamos te liberar acesso ao nosso APLICATIVO VIP E A UM GRUPINHO GRÁTIS\n\nSó clicar no link abaixo e entrar 👇🏻\n\nhttps://acesso.vipmembros.com/\n\nSe depois quiser entrar no GRUPINHO VIP DAS CASADAS é só me chamar  😘\n',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/09/IMG_8451.jpg',
+                waitForReply: true
+            },
+            {
+                id: 'step_13',
+                type: 'delay',
+                text: '',
+                mediaUrl: '',
+                waitForReply: false,
+                delaySeconds: '450'
+            },
+            {
+                id: 'step_14',
+                type: 'text',
+                text: 'Conseguiu amor? 🥰\n',
+                mediaUrl: '',
+                waitForReply: true
+            },
+            {
+                id: 'step_15',
+                type: 'text',
+                text: 'Se não tiver entrado no grupinho grátis, clica aqui que a Marina te coloca agora la dentro 👇🏻\n\nhttps://t.me/Marina_Talbot\n',
+                mediaUrl: '',
+                waitForReply: false,
+                delayBefore: '18',
+                showTyping: true
             }
         ]
     },
@@ -723,37 +826,90 @@ const defaultFunnels = {
         name: 'FAB - Compra Aprovada',
         steps: [
             {
-                id: 'step_0',
-                type: 'text',
-                text: 'Parabéns! Seu pedido FAB foi aprovado. Bem-vindo!',
-                waitForReply: true
-            },
-            {
                 id: 'step_1',
-                type: 'text',
-                text: 'Obrigado pela resposta! Confirma se recebeu o acesso ao FAB por email?',
+                type: 'audio',
+                text: '',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/10/Design-sem-nome-_26_.mp3',
                 waitForReply: true
             },
             {
                 id: 'step_2',
                 type: 'text',
-                text: 'Perfeito! Aproveite o conteúdo FAB. Qualquer dúvida, estamos aqui!'
+                text: 'Posso te enviar o contato da Fabiane? 😍\n',
+                mediaUrl: '',
+                waitForReply: true,
+                showTyping: true,
+                delayBefore: '20'
             },
             {
                 id: 'step_3',
-                type: 'delay',
-                delaySeconds: 420
+                type: 'video+text',
+                text: 'Seu ACESSO VIP está pronto! 😍 Pra acessar é bem simples, Clique no link abaixo 👇🏻\n\nhttps://acesso.vipmembros.com/\n\nE entre usando seu e-mail de compra.\n\nLá dentro você vai encontrar o contato dela, fotos, vídeos e todo o conteúdo exclusivo só pros VIPs liberados pra você! 🔥\n\nCorre lá, porque ela tá te esperando ❤️\n',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/08/WhatsApp-Video-2025-08-21-at-12.27.34-3.mp4',
+                waitForReply: false,
+                showTyping: true,
+                delayBefore: '27'
             },
             {
                 id: 'step_4',
-                type: 'text',
-                text: 'Já está conseguindo acessar o conteúdo FAB? Precisa de ajuda?',
-                waitForReply: true
+                type: 'delay',
+                text: '',
+                mediaUrl: '',
+                waitForReply: false,
+                delaySeconds: '600'
             },
             {
                 id: 'step_5',
                 type: 'text',
-                text: 'Ótimo! Aproveite o conteúdo e bons estudos!'
+                text: 'Conseguiu amor? 🥰\n',
+                mediaUrl: '',
+                waitForReply: true
+            },
+            {
+                id: 'step_6',
+                type: 'text',
+                text: 'Se não tiver conseguido, aqui o zap da Fabi: 11 94363-2174\n',
+                mediaUrl: '',
+                waitForReply: false,
+                showTyping: true,
+                delayBefore: '17'
+            },
+            {
+                id: 'step_7',
+                type: 'delay',
+                text: '',
+                mediaUrl: '',
+                waitForReply: false,
+                delaySeconds: '290'
+            },
+            {
+                id: 'step_8',
+                type: 'image+text',
+                text: 'Ah amor? Deixa eu te falar... kkk As meninas do nosso Grupinho das Casadas ficaram doidas quando souberam que você entrou 😏 Já sabe né? quando é carne nova...ficam assim... ouriçadas hahaha Fui falar de você, olha como ficaram... Você quer entrar no grupinho também?\n',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/09/Design-sem-nome-9.png',
+                waitForReply: true
+            },
+            {
+                id: 'step_9',
+                type: 'text',
+                text: 'Se quiser entrar pra conhecer as meninas é so clicar no link 👇🏻\n\nhttps://app.vipchats.com.br/of-cs\n',
+                mediaUrl: '',
+                waitForReply: false
+            },
+            {
+                id: 'step_10',
+                type: 'delay',
+                text: '',
+                mediaUrl: '',
+                waitForReply: false,
+                delaySeconds: '950'
+            },
+            {
+                id: 'step_11',
+                type: 'image+text',
+                text: 'Amor, o que achou de mim? 🙈😍  Não posso falar muito aqui nesse Zap… ele é só do suporte… Mas se você quiser me conhecer melhor… podemos até fazer uma Chamadinha de vídeo 🔥 \n\nSe gostou de mim, me chama lá no meu Zap particular 👇🏻 \n\nhttps://app.vipchats.com.br/gaby\n\nE quem sabe a gente não se diverte juntinhos😈💋\n',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/08/WhatsApp-Image-2025-06-22-at-19.14.28.jpeg',
+                waitForReply: false
             }
         ]
     },
@@ -762,31 +918,68 @@ const defaultFunnels = {
         name: 'FAB - PIX Pendente',
         steps: [
             {
-                id: 'step_0',
-                type: 'text',
-                text: 'Seu PIX FAB foi gerado! Aguardamos o pagamento.',
-                waitForReply: true
-            },
-            {
                 id: 'step_1',
-                type: 'text',
-                text: 'Obrigado pelo contato! Está com dificuldades no pagamento?',
+                type: 'audio',
+                text: '',
+                mediaUrl: 'https://hotmoney.space/wp-content/uploads/2025/10/1760070558163768420-321608735174786.mp3',
                 waitForReply: true
             },
             {
                 id: 'step_2',
                 type: 'text',
-                text: 'Nossa equipe está disponível para ajudar com o pagamento!'
+                text: 'Posso te passar o número do Zap dela por aqui mesmo??',
+                mediaUrl: '',
+                waitForReply: true,
+                showTyping: true,
+                delayBefore: '16'
             },
             {
                 id: 'step_3',
-                type: 'delay',
-                delaySeconds: 1500
+                type: 'image+text',
+                text: 'Eita amor... Acabei de ver no sistema que você gerou o Pix mas ainda não pagou… Por isso não posso te enviar o contato dela ainda... Vou te envir o Link para você finalizar o pagamento e continuar falando com ela 👇🏻\n\n{PIX_LINK}\n',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/06/WhatsApp-Image-2025-06-09-at-17.57.36.jpeg',
+                waitForReply: false,
+                showTyping: true,
+                delayBefore: '24'
             },
             {
                 id: 'step_4',
                 type: 'text',
-                text: 'Ainda não identificamos seu pagamento. O PIX tem validade limitada.'
+                text: 'Assim que finalizar só me enviar comprovante que te mando o contato dela + seu acesso ao APP 😘\n',
+                mediaUrl: '',
+                waitForReply: false,
+                showTyping: true,
+                delayBefore: '11'
+            },
+            {
+                id: 'step_5',
+                type: 'delay',
+                text: '',
+                mediaUrl: '',
+                waitForReply: false,
+                delaySeconds: '600'
+            },
+            {
+                id: 'step_6',
+                type: 'image+text',
+                text: 'Amor vi que ainda não pagou o valor... Mas como a Fabi quer muito falar com você e ela pagou pra você! Posso te mandar?\n',
+                mediaUrl: 'https://e-volutionn.com/wp-content/uploads/2025/09/IMG_8451.jpg',
+                waitForReply: true
+            },
+            {
+                id: 'step_7',
+                type: 'delay',
+                text: '',
+                mediaUrl: '',
+                waitForReply: false,
+                delaySeconds: '300'
+            },
+            {
+                id: 'step_8',
+                type: 'text',
+                text: 'Ela fez o pagamento de R$ 15 pra você. daí ficou faltando R$ 9 reais pra você ter acesso a tudo... aí la no zap dela se você quiser vcs acertam tudo, não sei o que vocês conversaram... mas enfim. se você quiser ser VIP e ter o zap dela com tudo além do grupinho, vou te mandar o link do restante, que seria os R$ 9 reais ok?\n\nCaso queira, faz o pagamento e me manda o comprovante aqui dos R$ 9 q eu te passo o zap dela 👇🏻👇🏻👇🏻\n\nhttps://pay.kirvano.com/a838d1ca-c9ab-43b4-8e27-7e1bbb606b10\n',
+                mediaUrl: '',
+                waitForReply: false
             }
         ]
     }
@@ -958,18 +1151,21 @@ async function sendAudio(remoteJid, audioUrl, instanceName) {
     }
 }
 
-// ============ 🔥 ENVIO COM PROTEÇÃO ANTI-DUPLICAÇÃO TOTAL ============
-async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFirstMessage = false) {
-    // 🔥 PROTEÇÃO 1: Verifica se mensagem já foi enviada recentemente
-    const content = text || mediaUrl || '';
-    if (isMessageBlocked(phoneKey, content, type)) {
+// ============ 🔥 ENVIO COM PROTEÇÃO ANTI-DUPLICAÇÃO MELHORADA ============
+async function sendWithFallback(phoneKey, remoteJid, step, conversation, isFirstMessage = false) {
+    // 🔥 PROTEÇÃO 1: Verifica se mensagem já foi enviada recentemente (USA STEP COMPLETO)
+    if (isMessageBlocked(phoneKey, step, conversation)) {
         addLog('SEND_BLOCKED_DUPLICATE', `🚫 BLOQUEADO - Mensagem duplicada`, {
             phoneKey,
-            type,
-            content: String(content).substring(0, 30)
+            stepId: step.id,
+            type: step.type
         });
         return { success: false, error: 'MESSAGE_ALREADY_SENT', blocked: true };
     }
+    
+    // Substitui variáveis DEPOIS de gerar hash
+    const finalText = replaceVariables(step.text, conversation);
+    const finalMediaUrl = replaceVariables(step.mediaUrl, conversation);
     
     let instancesToTry = [...INSTANCES];
     const stickyInstance = stickyInstances.get(phoneKey);
@@ -989,22 +1185,22 @@ async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFir
             try {
                 let result;
                 
-                if (type === 'text') result = await sendText(remoteJid, text, instanceName);
-                else if (type === 'image') result = await sendImage(remoteJid, mediaUrl, '', instanceName);
-                else if (type === 'image+text') result = await sendImage(remoteJid, mediaUrl, text, instanceName);
-                else if (type === 'video') result = await sendVideo(remoteJid, mediaUrl, '', instanceName);
-                else if (type === 'video+text') result = await sendVideo(remoteJid, mediaUrl, text, instanceName);
-                else if (type === 'audio') result = await sendAudio(remoteJid, mediaUrl, instanceName);
+                if (step.type === 'text') result = await sendText(remoteJid, finalText, instanceName);
+                else if (step.type === 'image') result = await sendImage(remoteJid, finalMediaUrl, '', instanceName);
+                else if (step.type === 'image+text') result = await sendImage(remoteJid, finalMediaUrl, finalText, instanceName);
+                else if (step.type === 'video') result = await sendVideo(remoteJid, finalMediaUrl, '', instanceName);
+                else if (step.type === 'video+text') result = await sendVideo(remoteJid, finalMediaUrl, finalText, instanceName);
+                else if (step.type === 'audio') result = await sendAudio(remoteJid, finalMediaUrl, instanceName);
                 
                 if (result && result.ok) {
-                    // 🔥 REGISTRA MENSAGEM ENVIADA
-                    registerSentMessage(phoneKey, content, type);
+                    // 🔥 REGISTRA MENSAGEM ENVIADA (USA STEP COMPLETO)
+                    registerSentMessage(phoneKey, step, conversation);
                     
                     stickyInstances.set(phoneKey, instanceName);
                     if (isFirstMessage) {
                         lastSuccessfulInstanceIndex = INSTANCES.indexOf(instanceName);
                     }
-                    addLog('SEND_SUCCESS', `✅ Mensagem enviada via ${instanceName}`, { phoneKey, type });
+                    addLog('SEND_SUCCESS', `✅ Mensagem enviada via ${instanceName}`, { phoneKey, stepId: step.id, type: step.type });
                     return { success: true, instanceName };
                 }
                 
@@ -1023,11 +1219,11 @@ async function sendWithFallback(phoneKey, remoteJid, type, text, mediaUrl, isFir
     
     addLog('SEND_ALL_FAILED', `❌ Falha total no envio para ${phoneKey}`, { lastError });
     
-    const conversation = conversations.get(phoneKey);
-    if (conversation) {
-        conversation.hasError = true;
-        conversation.errorMessage = lastError;
-        conversations.set(phoneKey, conversation);
+    const conv = conversations.get(phoneKey);
+    if (conv) {
+        conv.hasError = true;
+        conv.errorMessage = lastError;
+        conversations.set(phoneKey, conv);
     }
     
     return { success: false, error: lastError };
@@ -1055,8 +1251,8 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
         customerName,
         productType,
         amount,
-        pixLink: pixLink || null, // 💰 NOVO
-        pixQrCode: pixQrCode || null, // 💰 NOVO
+        pixLink: pixLink || null,
+        pixQrCode: pixQrCode || null,
         waiting_for_response: false,
         pixWaiting: true,
         createdAt: new Date(),
@@ -1093,7 +1289,6 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
     
     const pixConv = conversations.get(phoneKey);
     
-    // 💰 PRESERVA O LINK DO PIX ORIGINAL
     const pixLink = pixConv ? pixConv.pixLink : null;
     const pixQrCode = pixConv ? pixConv.pixQrCode : null;
     
@@ -1126,8 +1321,8 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
         customerName,
         productType,
         amount,
-        pixLink: pixLink, // 💰 PRESERVA LINK
-        pixQrCode: pixQrCode, // 💰 PRESERVA QR CODE
+        pixLink: pixLink,
+        pixQrCode: pixQrCode,
         waiting_for_response: false,
         createdAt: new Date(),
         lastSystemMessage: null,
@@ -1165,8 +1360,8 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
         customerName,
         productType,
         amount,
-        pixLink: pixLink || null, // 💰 NOVO
-        pixQrCode: pixQrCode || null, // 💰 NOVO
+        pixLink: pixLink || null,
+        pixQrCode: pixQrCode || null,
         waiting_for_response: false,
         createdAt: new Date(),
         lastSystemMessage: null,
@@ -1198,6 +1393,7 @@ async function sendStep(phoneKey) {
     addLog('STEP_SEND_START', `Enviando passo ${conversation.stepIndex}`, { 
         phoneKey,
         funnelId: conversation.funnelId,
+        stepId: step.id,
         stepType: step.type
     });
     
@@ -1214,15 +1410,11 @@ async function sendStep(phoneKey) {
     if (step.type === 'delay') {
         await new Promise(resolve => setTimeout(resolve, (step.delaySeconds || 10) * 1000));
     } else {
-        // 💰 SUBSTITUI VARIÁVEIS ANTES DE ENVIAR
-        const finalText = replaceVariables(step.text, conversation);
-        const finalMediaUrl = replaceVariables(step.mediaUrl, conversation);
-        
-        result = await sendWithFallback(phoneKey, conversation.remoteJid, step.type, finalText, finalMediaUrl, isFirstMessage);
+        result = await sendWithFallback(phoneKey, conversation.remoteJid, step, conversation, isFirstMessage);
         
         // 🔥 PROTEÇÃO 4: Se mensagem foi bloqueada por duplicação, não avança
         if (result.blocked) {
-            addLog('STEP_BLOCKED_DUPLICATE', `🚫 Passo bloqueado por duplicação`, { phoneKey });
+            addLog('STEP_BLOCKED_DUPLICATE', `🚫 Passo bloqueado por duplicação`, { phoneKey, stepId: step.id });
             return;
         }
     }
@@ -1288,7 +1480,6 @@ app.post('/webhook/kirvano', async (req, res) => {
         const customerPhone = data.customer?.phone_number || '';
         const totalPrice = data.total_price || 'R$ 0,00';
         
-        // 💰 CAPTURA LINK DO PIX (Kirvano)
         const pixLink = data.payment?.pix_url || data.payment?.checkout_url || data.payment?.payment_url || null;
         const pixQrCode = data.payment?.qrcode_image || data.payment?.pix_qrcode || null;
         
@@ -1359,7 +1550,6 @@ app.post('/webhook/perfectpay', async (req, res) => {
         const totalPrice = 'R$ ' + (saleAmount / 100).toFixed(2).replace('.', ',');
         const paymentType = parseInt(data.payment_type_enum || 0);
         
-        // 💰 CAPTURA LINK DO PIX (PerfectPay)
         const pixLink = data.billet_url || data.checkout_url || data.pix_url || data.payment_url || null;
         const pixQrCode = data.billet_number || data.pix_qrcode || data.pix_emv || null;
         
@@ -1615,7 +1805,7 @@ app.get('/api/conversations', (req, res) => {
         stepIndex: conv.stepIndex,
         waiting_for_response: conv.waiting_for_response,
         pixWaiting: conv.pixWaiting || false,
-        pixLink: conv.pixLink || null, // 💰 NOVO
+        pixLink: conv.pixLink || null,
         createdAt: conv.createdAt,
         lastSystemMessage: conv.lastSystemMessage,
         lastReply: conv.lastReply,
@@ -1807,7 +1997,7 @@ app.get('/api/funnels/export', (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(JSON.stringify({
-            version: '8.1',
+            version: '8.2',
             exportDate: new Date().toISOString(),
             totalFunnels: funnelsArray.length,
             funnels: funnelsArray
@@ -1849,6 +2039,242 @@ app.post('/api/funnels/import', (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ============ 🔧 ENDPOINTS DE DEBUG NOVOS ============
+
+app.get('/api/debug/conversation/:phoneKey', (req, res) => {
+    const { phoneKey } = req.params;
+    
+    const conversation = conversations.get(phoneKey);
+    
+    if (!conversation) {
+        return res.json({ 
+            success: false, 
+            error: 'Conversa não encontrada',
+            phoneKey 
+        });
+    }
+    
+    const funnel = funis.get(conversation.funnelId);
+    
+    const messageHistory = [];
+    const hashes = sentMessagesHash.get(phoneKey) || new Set();
+    
+    hashes.forEach(hash => {
+        const timestamp = messageBlockTimers.get(hash);
+        messageHistory.push({
+            hash: hash.substring(0, 8),
+            timestamp: timestamp ? new Date(timestamp).toISOString() : null,
+            blocked: timestamp ? (Date.now() - timestamp < MESSAGE_BLOCK_TIME) : false
+        });
+    });
+    
+    const debug = {
+        conversation: {
+            phoneKey: conversation.phoneKey,
+            customerName: conversation.customerName,
+            funnelId: conversation.funnelId,
+            currentStep: conversation.stepIndex,
+            totalSteps: funnel ? funnel.steps.length : 0,
+            waiting: conversation.waiting_for_response,
+            pixWaiting: conversation.pixWaiting,
+            canceled: conversation.canceled,
+            completed: conversation.completed,
+            createdAt: conversation.createdAt,
+            lastSystemMessage: conversation.lastSystemMessage,
+            lastReply: conversation.lastReply
+        },
+        funnel: funnel ? {
+            id: funnel.id,
+            name: funnel.name,
+            steps: funnel.steps.map((step, idx) => ({
+                index: idx,
+                id: step.id,
+                type: step.type,
+                text: step.text ? step.text.substring(0, 50) + '...' : null,
+                mediaUrl: step.mediaUrl ? step.mediaUrl.substring(0, 50) + '...' : null,
+                waitForReply: step.waitForReply,
+                delayBefore: step.delayBefore,
+                showTyping: step.showTyping,
+                delaySeconds: step.delaySeconds,
+                isCurrent: idx === conversation.stepIndex,
+                isDuplicate: funnel.steps.filter(s => s.id === step.id).length > 1
+            }))
+        } : null,
+        antiDuplication: {
+            totalHashes: hashes.size,
+            messageHistory: messageHistory,
+            blocked: messageHistory.filter(m => m.blocked).length,
+            expired: messageHistory.filter(m => !m.blocked).length
+        },
+        variations: {
+            phoneIndex: Array.from(phoneIndex.entries())
+                .filter(([key]) => key.includes(phoneKey.substring(4)))
+                .slice(0, 10),
+            phoneVariations: Array.from(phoneVariations.entries())
+                .filter(([key]) => key.includes(phoneKey.substring(4)))
+                .slice(0, 10),
+            lidMapping: phoneToLid.get(phoneKey) || null
+        }
+    };
+    
+    res.json({ success: true, data: debug });
+});
+
+app.get('/api/debug/duplicates', (req, res) => {
+    const issues = [];
+    
+    funis.forEach(funnel => {
+        const stepIds = funnel.steps.map(s => s.id);
+        const duplicates = stepIds.filter((id, idx) => stepIds.indexOf(id) !== idx);
+        
+        if (duplicates.length > 0) {
+            issues.push({
+                funnelId: funnel.id,
+                funnelName: funnel.name,
+                duplicateIds: [...new Set(duplicates)],
+                totalSteps: funnel.steps.length,
+                steps: funnel.steps.map((s, idx) => ({
+                    index: idx,
+                    id: s.id,
+                    type: s.type,
+                    isDuplicate: duplicates.includes(s.id)
+                }))
+            });
+        }
+    });
+    
+    res.json({
+        success: true,
+        totalIssues: issues.length,
+        issues: issues
+    });
+});
+
+app.get('/api/debug/blocked-messages', (req, res) => {
+    const blockedMessages = [];
+    
+    messageBlockTimers.forEach((timestamp, hash) => {
+        const timeSince = Date.now() - timestamp;
+        const isBlocked = timeSince < MESSAGE_BLOCK_TIME;
+        
+        blockedMessages.push({
+            hash: hash.substring(0, 8),
+            timestamp: new Date(timestamp).toISOString(),
+            timeSince: Math.round(timeSince / 1000) + 's',
+            blocked: isBlocked,
+            expiresIn: isBlocked ? Math.round((MESSAGE_BLOCK_TIME - timeSince) / 1000) + 's' : 'EXPIRADO'
+        });
+    });
+    
+    blockedMessages.sort((a, b) => b.timeSince - a.timeSince);
+    
+    res.json({
+        success: true,
+        total: blockedMessages.length,
+        blocked: blockedMessages.filter(m => m.blocked).length,
+        expired: blockedMessages.filter(m => !m.blocked).length,
+        messages: blockedMessages
+    });
+});
+
+app.post('/api/funnels/:funnelId/fix-ids', (req, res) => {
+    try {
+        const { funnelId } = req.params;
+        
+        const funnel = funis.get(funnelId);
+        if (!funnel) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Funil não encontrado' 
+            });
+        }
+        
+        const before = JSON.parse(JSON.stringify(funnel.steps));
+        
+        funnel.steps.forEach((step, index) => {
+            const newId = 'step_' + (index + 1);
+            console.log(`Renomeando: ${step.id} → ${newId}`);
+            step.id = newId;
+        });
+        
+        funis.set(funnelId, funnel);
+        saveFunnelsToFile();
+        
+        const duplicatesBefore = before.map(s => s.id).filter((id, idx, arr) => arr.indexOf(id) !== idx);
+        const duplicatesAfter = funnel.steps.map(s => s.id).filter((id, idx, arr) => arr.indexOf(id) !== idx);
+        
+        addLog('IDS_FIXED', `Funil ${funnelId} corrigido`, {
+            totalSteps: funnel.steps.length,
+            duplicatesBefore: duplicatesBefore.length,
+            duplicatesAfter: duplicatesAfter.length
+        });
+        
+        res.json({
+            success: true,
+            message: 'IDs corrigidos com sucesso!',
+            funnelId: funnelId,
+            totalSteps: funnel.steps.length,
+            duplicatesBefore: duplicatesBefore,
+            duplicatesAfter: duplicatesAfter,
+            fixed: duplicatesBefore.length - duplicatesAfter.length
+        });
+        
+    } catch (error) {
+        console.error('Erro ao corrigir IDs:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
+    }
+});
+
+app.post('/api/funnels/fix-all-ids', async (req, res) => {
+    try {
+        const results = [];
+        
+        for (const [funnelId, funnel] of funis.entries()) {
+            const before = funnel.steps.map(s => s.id);
+            
+            funnel.steps.forEach((step, index) => {
+                step.id = 'step_' + (index + 1);
+            });
+            
+            const after = funnel.steps.map(s => s.id);
+            const duplicatesBefore = before.filter((id, idx, arr) => arr.indexOf(id) !== idx);
+            const duplicatesAfter = after.filter((id, idx, arr) => arr.indexOf(id) !== idx);
+            
+            results.push({
+                funnelId,
+                totalSteps: funnel.steps.length,
+                duplicatesBefore: duplicatesBefore.length,
+                duplicatesAfter: duplicatesAfter.length,
+                fixed: duplicatesBefore.length > 0
+            });
+            
+            funis.set(funnelId, funnel);
+        }
+        
+        await saveFunnelsToFile();
+        
+        const totalFixed = results.filter(r => r.fixed).length;
+        
+        addLog('ALL_IDS_FIXED', `${totalFixed} funis corrigidos`);
+        
+        res.json({
+            success: true,
+            message: `${totalFixed} funis corrigidos!`,
+            results: results
+        });
+        
+    } catch (error) {
+        console.error('Erro ao corrigir todos:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: error.message 
+        });
     }
 });
 
@@ -1943,29 +2369,35 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(80));
-    console.log('🛡️ KIRVANO v8.1 - COM SISTEMA PIX LINK');
+    console.log('🛡️ KIRVANO v8.2 - IDS CORRIGIDOS + DEBUG + ANTI-DUPLICAÇÃO MELHORADA');
     console.log('='.repeat(80));
     console.log('✅ Porta:', PORT);
     console.log('✅ Evolution:', EVOLUTION_BASE_URL);
     console.log('✅ Instâncias:', INSTANCES.length);
     console.log('');
-    console.log('🔥 PROTEÇÕES IMPLEMENTADAS:');
-    console.log('  ✅ PROTEÇÃO 1: Bloqueio por Hash de Mensagem (60s)');
+    console.log('🔧 CORREÇÕES v8.2:');
+    console.log('  ✅ IDs de steps CORRIGIDOS (sem duplicados)');
+    console.log('  ✅ Funis da versão 27-11 aplicados');
+    console.log('  ✅ Sistema anti-duplicação MELHORADO (hash antes de variáveis)');
+    console.log('  ✅ Endpoints de debug adicionados');
+    console.log('');
+    console.log('🔥 PROTEÇÕES:');
+    console.log('  ✅ PROTEÇÃO 1: Hash melhorado (ignora variáveis dinâmicas)');
     console.log('  ✅ PROTEÇÃO 2: Bloqueio de Criação de Conversa Duplicada');
     console.log('  ✅ PROTEÇÃO 3: Bloqueio de Início de Funil Duplicado');
     console.log('  ✅ PROTEÇÃO 4: Bloqueio de Envio de Step Duplicado');
     console.log('');
-    console.log('💰 NOVIDADES:');
+    console.log('💰 RECURSOS:');
     console.log('  ✅ Sistema de PIX Link (Kirvano + PerfectPay)');
     console.log('  ✅ Variáveis dinâmicas: {PIX_LINK}, {NOME_CLIENTE}, {VALOR}');
     console.log('  ✅ Reenvio do MESMO link PIX gerado');
     console.log('');
-    console.log('📝 COMO USAR:');
-    console.log('  • No texto do step, digite: {PIX_LINK}');
-    console.log('  • Exemplo: "Aqui está seu PIX: {PIX_LINK}"');
-    console.log('  • O sistema substitui automaticamente pelo link real');
-    console.log('  • Funciona em QUALQUER step do funil');
-    console.log('  • Outras variáveis: {NOME_CLIENTE}, {VALOR}, {PRODUTO}');
+    console.log('🔍 DEBUG:');
+    console.log('  📊 /api/debug/conversation/:phoneKey - Ver conversa específica');
+    console.log('  🔍 /api/debug/duplicates - Ver IDs duplicados');
+    console.log('  🔒 /api/debug/blocked-messages - Ver mensagens bloqueadas');
+    console.log('  🔧 /api/funnels/:funnelId/fix-ids - Corrigir IDs de um funil');
+    console.log('  ✅ /api/funnels/fix-all-ids - Corrigir IDs de todos os funis');
     console.log('');
     console.log('🌐 Frontend: http://localhost:' + PORT);
     console.log('📊 Dashboard: http://localhost:' + PORT + '/api/dashboard');
