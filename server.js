@@ -15,6 +15,17 @@ const DATA_FILE = path.join(__dirname, 'data', 'funnels.json');
 const CONVERSATIONS_FILE = path.join(__dirname, 'data', 'conversations.json');
 const MESSAGE_BLOCK_TIME = 60000; // 60 segundos de bloqueio por mensagem
 
+// ============ 🎯 CONFIGURAÇÕES DE LOAD BALANCING ============
+const LOAD_WARNING_THRESHOLD = 5;    // Começa a logar warnings
+const LOAD_CRITICAL_THRESHOLD = 8;   // Logs críticos
+const LOAD_EMERGENCY_THRESHOLD = 12; // Situação de emergência
+
+// Delays progressivos para proteger instâncias sobrecarregadas
+const DELAY_NORMAL = 0;              // 0ms - situação normal
+const DELAY_WARNING = 2000;          // 2s - warning
+const DELAY_CRITICAL = 5000;         // 5s - crítico
+const DELAY_EMERGENCY = 10000;       // 10s - emergência
+
 // ============ MAPEAMENTO DE PRODUTOS ============
 
 // Kirvano - Mapeamento por offer_id
@@ -166,6 +177,104 @@ setInterval(() => {
         console.log(`🧹 Limpeza: ${cleanedCount} bloqueios expirados removidos`);
     }
 }, 120000);
+
+// ============ 🎯 LOAD BALANCING INTELIGENTE ============
+
+// Conta conversas ativas por instância
+function getInstanceLoad() {
+    const load = {};
+    INSTANCES.forEach(inst => load[inst] = 0);
+    
+    conversations.forEach(conv => {
+        if (!conv.canceled && !conv.completed) {
+            const instance = stickyInstances.get(conv.phoneKey);
+            if (instance && load[instance] !== undefined) {
+                load[instance]++;
+            }
+        }
+    });
+    
+    return load;
+}
+
+// Escolhe instância com menor carga + retorna status e delay
+function getLeastLoadedInstanceWithStatus() {
+    const load = getInstanceLoad();
+    
+    let minLoad = Infinity;
+    let bestInstance = INSTANCES[0];
+    
+    // Encontra a instância com MENOR carga
+    INSTANCES.forEach(inst => {
+        if (load[inst] < minLoad) {
+            minLoad = load[inst];
+            bestInstance = inst;
+        }
+    });
+    
+    // Determina status e delay baseado na carga
+    let status, delay, emoji;
+    
+    if (minLoad < LOAD_WARNING_THRESHOLD) {
+        status = 'OK';
+        delay = DELAY_NORMAL;
+        emoji = '✅';
+    } else if (minLoad < LOAD_CRITICAL_THRESHOLD) {
+        status = 'WARNING';
+        delay = DELAY_WARNING;
+        emoji = '⚠️';
+    } else if (minLoad < LOAD_EMERGENCY_THRESHOLD) {
+        status = 'CRITICAL';
+        delay = DELAY_CRITICAL;
+        emoji = '🚨';
+    } else {
+        status = 'EMERGENCY';
+        delay = DELAY_EMERGENCY;
+        emoji = '💥';
+    }
+    
+    console.log(`${emoji} Load Balancing:`, {
+        instânciasConectadas: INSTANCES.length,
+        escolhida: bestInstance,
+        cargaEscolhida: minLoad,
+        status: status,
+        delay: delay + 'ms',
+        distribuiçãoCompleta: load
+    });
+    
+    addLog('LOAD_BALANCING', `${emoji} ${status}: ${bestInstance} com ${minLoad} conversas`, {
+        instance: bestInstance,
+        load: minLoad,
+        status: status,
+        delay: delay,
+        allLoads: load
+    });
+    
+    // 🚨 ALERTAS CRÍTICOS
+    if (status === 'CRITICAL') {
+        addLog('LOAD_ALERT', '🚨 ATENÇÃO: Instâncias sobrecarregadas! Considere adicionar mais instâncias.', {
+            totalInstances: INSTANCES.length,
+            minLoad: minLoad,
+            recommendation: 'Adicione mais 2-3 instâncias'
+        });
+    }
+    
+    if (status === 'EMERGENCY') {
+        addLog('LOAD_EMERGENCY', '💥 EMERGÊNCIA: Sistema sob carga EXTREMA!', {
+            totalInstances: INSTANCES.length,
+            minLoad: minLoad,
+            recommendation: 'URGENTE: Adicione 5+ instâncias imediatamente!'
+        });
+    }
+    
+    return { 
+        instance: bestInstance, 
+        load: minLoad,
+        status: status,
+        delay: delay,
+        distribution: load
+    };
+}
 
 // ============ SISTEMA DE NORMALIZAÇÃO UNIVERSAL ULTRA ROBUSTO ============
 
@@ -763,12 +872,40 @@ function phoneToRemoteJid(phone) {
     return formatted + '@s.whatsapp.net';
 }
 
+// ✅ CORREÇÃO 1: Melhorar extractMessageText
 function extractMessageText(message) {
     if (!message) return '';
+    
+    // Textos normais
     if (message.conversation) return message.conversation;
     if (message.extendedTextMessage?.text) return message.extendedTextMessage.text;
-    if (message.imageMessage?.caption) return message.imageMessage.caption;
-    if (message.videoMessage?.caption) return message.videoMessage.caption;
+    
+    // Imagens e vídeos (com ou sem legenda)
+    if (message.imageMessage) return message.imageMessage.caption || '[IMAGEM]';
+    if (message.videoMessage) return message.videoMessage.caption || '[VÍDEO]';
+    
+    // Áudio
+    if (message.audioMessage) return '[ÁUDIO]';
+    
+    // Documentos
+    if (message.documentMessage) return '[DOCUMENTO]';
+    
+    // Figurinha
+    if (message.stickerMessage) return '[FIGURINHA]';
+    
+    // Localização
+    if (message.locationMessage) return '[LOCALIZAÇÃO]';
+    
+    // Contato
+    if (message.contactMessage) return '[CONTATO]';
+    
+    // Visualização única (imagem/vídeo que some depois de ver)
+    if (message.viewOnceMessage) {
+        if (message.viewOnceMessage.message?.imageMessage) return '[IMAGEM VISUALIZAÇÃO ÚNICA]';
+        if (message.viewOnceMessage.message?.videoMessage) return '[VÍDEO VISUALIZAÇÃO ÚNICA]';
+    }
+    
+    // Qualquer outra coisa
     return '[MENSAGEM]';
 }
 
@@ -904,9 +1041,9 @@ async function sendAudio(remoteJid, audioUrl, instanceName) {
     }
 }
 
-// ============ 🔥 ENVIO COM PROTEÇÃO ANTI-DUPLICAÇÃO MELHORADA ============
+// ✅ CORREÇÃO 4 + 5: sendWithFallback com Sticky Instance + Load Balancing
 async function sendWithFallback(phoneKey, remoteJid, step, conversation, isFirstMessage = false) {
-    // 🔥 PROTEÇÃO 1: Verifica se mensagem já foi enviada recentemente (USA STEP COMPLETO)
+    // 🔥 PROTEÇÃO 1: Verifica se mensagem já foi enviada recentemente
     if (isMessageBlocked(phoneKey, step, conversation)) {
         addLog('SEND_BLOCKED_DUPLICATE', `🚫 BLOQUEADO - Mensagem duplicada`, {
             phoneKey,
@@ -922,12 +1059,31 @@ async function sendWithFallback(phoneKey, remoteJid, step, conversation, isFirst
     
     let instancesToTry = [...INSTANCES];
     const stickyInstance = stickyInstances.get(phoneKey);
+    const forcedInstance = conversation.forceStickyInstance;
     
-    if (stickyInstance && !isFirstMessage) {
+    if (forcedInstance) {
+        // ✅ Força uso da instância específica da migração
+        instancesToTry = [forcedInstance, ...INSTANCES.filter(i => i !== forcedInstance)];
+        addLog('FORCED_STICKY_INSTANCE', `Usando instância forçada da migração: ${forcedInstance}`, { phoneKey });
+    } else if (stickyInstance && !isFirstMessage) {
         instancesToTry = [stickyInstance, ...INSTANCES.filter(i => i !== stickyInstance)];
     } else if (isFirstMessage) {
-        const nextIndex = (lastSuccessfulInstanceIndex + 1) % INSTANCES.length;
-        instancesToTry = [...INSTANCES.slice(nextIndex), ...INSTANCES.slice(0, nextIndex)];
+        // ✅ NOVO: Load balancing inteligente
+        const balancing = getLeastLoadedInstanceWithStatus();
+        
+        // 🔥 PROTEÇÃO: Adiciona delay se estiver sobrecarregado
+        if (balancing.delay > 0) {
+            addLog('LOAD_PROTECTION', `⏱️ Aguardando ${balancing.delay}ms para proteger instância`, {
+                phoneKey,
+                instance: balancing.instance,
+                load: balancing.load,
+                status: balancing.status
+            });
+            await new Promise(resolve => setTimeout(resolve, balancing.delay));
+        }
+        
+        // Usa a instância escolhida, mas mantém outras como fallback
+        instancesToTry = [balancing.instance, ...INSTANCES.filter(i => i !== balancing.instance)];
     }
     
     let lastError = null;
@@ -946,13 +1102,20 @@ async function sendWithFallback(phoneKey, remoteJid, step, conversation, isFirst
                 else if (step.type === 'audio') result = await sendAudio(remoteJid, finalMediaUrl, instanceName);
                 
                 if (result && result.ok) {
-                    // 🔥 REGISTRA MENSAGEM ENVIADA (USA STEP COMPLETO)
+                    // 🔥 REGISTRA MENSAGEM ENVIADA
                     registerSentMessage(phoneKey, step, conversation);
                     
                     stickyInstances.set(phoneKey, instanceName);
                     if (isFirstMessage) {
                         lastSuccessfulInstanceIndex = INSTANCES.indexOf(instanceName);
                     }
+                    
+                    // ✅ Limpa forçamento após primeiro envio bem-sucedido
+                    if (conversation.forceStickyInstance) {
+                        conversation.forceStickyInstance = null;
+                        conversations.set(phoneKey, conversation);
+                    }
+                    
                     addLog('SEND_SUCCESS', `✅ Mensagem enviada via ${instanceName}`, { phoneKey, stepId: step.id, type: step.type });
                     return { success: true, instanceName };
                 }
@@ -1037,7 +1200,7 @@ async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, cust
     pixTimeouts.set(phoneKey, { timeout, orderCode, createdAt: new Date() });
 }
 
-// ✅ FUNÇÃO CORRIGIDA - SEMPRE COMEÇA DO PASSO 0
+// ✅ CORREÇÃO 4: transferPixToApproved com Sticky Instance
 async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerName, productType, amount) {
     console.log('🟢 transferPixToApproved:', phoneKey);
     
@@ -1045,6 +1208,9 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
     
     const pixLink = pixConv ? pixConv.pixLink : null;
     const pixQrCode = pixConv ? pixConv.pixQrCode : null;
+    
+    // ✅ CORREÇÃO: Captura a sticky instance da conversa PIX antiga
+    const oldStickyInstance = stickyInstances.get(phoneKey);
     
     if (pixConv) {
         pixConv.canceled = true;
@@ -1059,10 +1225,13 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
         pixTimeouts.delete(phoneKey);
     }
     
-    // ✅ CORREÇÃO: Sempre começa do passo 0 (início do funil)
     const startingStep = 0;
     
-    addLog('TRANSFER_PIX_TO_APPROVED', `Transferido para APROVADA, começando do passo 0`, { phoneKey, productType });
+    addLog('TRANSFER_PIX_TO_APPROVED', `Transferido para APROVADA na mesma instância`, { 
+        phoneKey, 
+        productType,
+        oldInstance: oldStickyInstance || 'NENHUMA'
+    });
     
     const approvedConv = {
         phoneKey,
@@ -1077,11 +1246,12 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
         pixQrCode: pixQrCode,
         waiting_for_response: false,
         createdAt: new Date(),
-        lastSystemMessage: null,
+        lastSystemMessage: new Date(), // ✅ Evita ser detectado como "primeira mensagem"
         lastReply: null,
         canceled: false,
         completed: false,
-        transferredFromPix: true
+        transferredFromPix: true,
+        forceStickyInstance: oldStickyInstance // ✅ FORÇA USO DA MESMA INSTÂNCIA
     };
     
     conversations.set(phoneKey, approvedConv);
@@ -1128,6 +1298,7 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
     await sendStep(phoneKey);
 }
 
+// ✅ CORREÇÃO 2: Prevenir Race Condition em sendStep
 async function sendStep(phoneKey) {
     const conversation = conversations.get(phoneKey);
     if (!conversation || conversation.canceled || conversation.pixWaiting) return;
@@ -1173,9 +1344,13 @@ async function sendStep(phoneKey) {
         conversation.lastSystemMessage = new Date();
         
         if (step.waitForReply && step.type !== 'delay') {
+            // ✅ CORREÇÃO: Marca como esperando ANTES de qualquer coisa
             conversation.waiting_for_response = true;
             conversations.set(phoneKey, conversation);
-            console.log('✅ MARCADO waiting_for_response = TRUE');
+            
+            // ✅ Pequeno delay para garantir que o estado foi salvo
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
             addLog('STEP_WAITING_REPLY', `✅ Aguardando resposta passo ${conversation.stepIndex}`, { phoneKey });
         } else {
             conversations.set(phoneKey, conversation);
@@ -1360,6 +1535,7 @@ app.post('/webhook/perfectpay', async (req, res) => {
     }
 });
 
+// ✅ CORREÇÃO 3: Processar respostas "fora de ordem" no Webhook Evolution
 app.post('/webhook/evolution', async (req, res) => {
     try {
         const data = req.body;
@@ -1467,11 +1643,29 @@ app.post('/webhook/evolution', async (req, res) => {
                 return res.json({ success: true });
             }
             
+            // ✅ CORREÇÃO: Aceita resposta mesmo se não está "oficialmente" esperando
             if (!conversation.waiting_for_response) {
-                addLog('EVOLUTION_NOT_WAITING', 'Não aguardando resposta', { 
+                addLog('EVOLUTION_RESPONSE_OUT_OF_ORDER', '⚠️ Resposta fora de ordem', { 
                     phoneKey,
-                    stepIndex: conversation.stepIndex
+                    stepIndex: conversation.stepIndex,
+                    lastSystemMessage: conversation.lastSystemMessage,
+                    timeSinceLastMessage: conversation.lastSystemMessage ? Date.now() - conversation.lastSystemMessage : null
                 });
+                
+                // ✅ Se última mensagem foi há menos de 30 segundos, aceita (pode ter sido race condition)
+                if (conversation.lastSystemMessage && (Date.now() - conversation.lastSystemMessage < 30000)) {
+                    addLog('EVOLUTION_ACCEPTING_LATE_RESPONSE', '✅ Aceitando resposta atrasada', { phoneKey });
+                    
+                    conversation.waiting_for_response = false;
+                    conversation.lastReply = new Date();
+                    conversations.set(phoneKey, conversation);
+                    
+                    await advanceConversation(phoneKey, messageText, 'reply');
+                    return res.json({ success: true });
+                }
+                
+                // Se passou muito tempo, realmente ignora
+                addLog('EVOLUTION_TOO_OLD', 'Resposta muito antiga, ignorando', { phoneKey });
                 return res.json({ success: true });
             }
             
@@ -1541,6 +1735,39 @@ app.get('/api/dashboard', (req, res) => {
             sent_messages_cache: sentMessagesHash.size,
             blocked_messages_count: messageBlockTimers.size
         }
+    });
+});
+
+// ✅ NOVO: Endpoint de monitoramento de carga
+app.get('/api/load-status', (req, res) => {
+    const load = getInstanceLoad();
+    const balancing = getLeastLoadedInstanceWithStatus();
+    
+    const instanceDetails = INSTANCES.map(inst => ({
+        name: inst,
+        activeConversations: load[inst],
+        status: load[inst] < LOAD_WARNING_THRESHOLD ? 'OK' : 
+                load[inst] < LOAD_CRITICAL_THRESHOLD ? 'WARNING' : 
+                load[inst] < LOAD_EMERGENCY_THRESHOLD ? 'CRITICAL' : 'EMERGENCY'
+    }));
+    
+    res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        summary: {
+            totalInstances: INSTANCES.length,
+            totalConversations: conversations.size,
+            leastLoadedInstance: balancing.instance,
+            leastLoad: balancing.load,
+            systemStatus: balancing.status,
+            nextDelay: balancing.delay + 'ms'
+        },
+        instances: instanceDetails,
+        recommendations: 
+            balancing.status === 'EMERGENCY' ? 'URGENTE: Adicione 5+ instâncias' :
+            balancing.status === 'CRITICAL' ? 'Recomendado: Adicione 2-3 instâncias' :
+            balancing.status === 'WARNING' ? 'Considere adicionar mais instâncias' :
+            'Sistema operando normalmente'
     });
 });
 
@@ -1747,7 +1974,7 @@ app.get('/api/funnels/export', (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(JSON.stringify({
-            version: '8.3',
+            version: '8.5',
             exportDate: new Date().toISOString(),
             totalFunnels: funnelsArray.length,
             funnels: funnelsArray
@@ -2110,7 +2337,6 @@ async function initializeData() {
     
     const loaded = await loadFunnelsFromFile();
     
-    // ✅ SE NÃO CARREGOU DO ARQUIVO, USA OS FUNIS PADRÃO APENAS COMO FALLBACK
     if (!loaded) {
         console.log('⚠️ Arquivo não encontrado, usando funis padrão como fallback');
         Object.values(defaultFunnels).forEach(funnel => {
@@ -2130,16 +2356,30 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(80));
-    console.log('🛡️ KIRVANO v8.3 - CORREÇÃO PIX→APROVADA SEMPRE PASSO 0');
+    console.log('🛡️ KIRVANO v8.5 - LOAD BALANCING INTELIGENTE');
     console.log('='.repeat(80));
     console.log('✅ Porta:', PORT);
     console.log('✅ Evolution:', EVOLUTION_BASE_URL);
     console.log('✅ Instâncias:', INSTANCES.length);
     console.log('');
-    console.log('🔧 CORREÇÃO v8.3:');
-    console.log('  ✅ transferPixToApproved() SEMPRE começa do passo 0');
-    console.log('  ✅ Funis salvos no editor TÊM PRIORIDADE sobre hardcoded');
-    console.log('  ✅ Funis hardcoded são APENAS fallback se arquivo não existir');
+    console.log('🔧 CORREÇÕES v8.4 (INCLUÍDAS):');
+    console.log('  ✅ extractMessageText - Detecta TODOS os tipos (áudio, imagem, doc, etc)');
+    console.log('  ✅ sendStep - Previne race condition (marca waiting ANTES + delay 300ms)');
+    console.log('  ✅ Webhook Evolution - Aceita respostas até 30s após envio');
+    console.log('  ✅ transferPixToApproved - FORÇA mesma instância na migração PIX→APROVADA');
+    console.log('');
+    console.log('🎯 NOVIDADES v8.5:');
+    console.log('  ✅ Load Balancing Inteligente - Escolhe instância com MENOR carga');
+    console.log('  ✅ Delays Progressivos - Protege instâncias sobrecarregadas');
+    console.log('  ✅ Alertas Automáticos - Avisa quando precisa adicionar instâncias');
+    console.log('  ✅ NUNCA perde lead - Sempre envia, mesmo em sobrecarga');
+    console.log('  ✅ Endpoint /api/load-status - Monitore carga em tempo real');
+    console.log('');
+    console.log('📊 LIMITES DE CARGA:');
+    console.log('  ✅ OK: < 5 conversas/instância (0ms delay)');
+    console.log('  ⚠️ WARNING: 5-8 conversas (2s delay)');
+    console.log('  🚨 CRITICAL: 8-12 conversas (5s delay)');
+    console.log('  💥 EMERGENCY: > 12 conversas (10s delay)');
     console.log('');
     console.log('🔥 PROTEÇÕES ATIVAS:');
     console.log('  ✅ Hash melhorado (ignora variáveis dinâmicas)');
@@ -2152,8 +2392,10 @@ app.listen(PORT, async () => {
     console.log('  ✅ Variáveis dinâmicas: {PIX_LINK}, {NOME_CLIENTE}, {VALOR}');
     console.log('  ✅ Reenvio do MESMO link PIX gerado');
     console.log('');
-    console.log('🌐 Frontend: http://localhost:' + PORT);
-    console.log('📊 Dashboard: http://localhost:' + PORT + '/api/dashboard');
+    console.log('🌐 Endpoints:');
+    console.log('  📊 Dashboard: http://localhost:' + PORT + '/api/dashboard');
+    console.log('  🎯 Load Status: http://localhost:' + PORT + '/api/load-status');
+    console.log('  🏠 Frontend: http://localhost:' + PORT);
     console.log('='.repeat(80));
     
     await initializeData();
