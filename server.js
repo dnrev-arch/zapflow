@@ -9,20 +9,15 @@ const app = express();
 // ============ CONFIGURAÇÕES ============
 const EVOLUTION_BASE_URL = process.env.EVOLUTION_BASE_URL || 'https://evo.flowzap.fun';
 const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || 'SUA_API_KEY_AQUI';
-const PIX_TIMEOUT = 7 * 60 * 1000; // 7 minutos (ÚNICO delay no código)
+const PIX_TIMEOUT = 7 * 60 * 1000; // 7 minutos
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = path.join(__dirname, 'data', 'funnels.json');
 const CONVERSATIONS_FILE = path.join(__dirname, 'data', 'conversations.json');
-const MESSAGE_BLOCK_TIME = 60000; // 60 segundos
-
-// ============ 🎯 CONFIGURAÇÕES DE DISTRIBUIÇÃO INTELIGENTE ============
-const OVERLOAD_THRESHOLD = 5;              // 5 conversas ativas = sobrecarregada
-const OVERLOAD_DELAY = 2 * 60 * 1000;     // 2 minutos de delay na próxima
-const SENSITIVE_CONVERSATIONS = 10;        // 10 conversas para deixar de ser sensível
-const SENSITIVE_TIME = 6 * 60 * 60 * 1000; // 6 horas
-const INSTANCE_CHECK_INTERVAL = 2 * 60 * 1000; // Verifica instâncias a cada 2 minutos
+const MESSAGE_BLOCK_TIME = 60000; // 60 segundos de bloqueio por mensagem
 
 // ============ MAPEAMENTO DE PRODUTOS ============
+
+// Kirvano - Mapeamento por offer_id
 const PRODUCT_MAPPING = {
     'e79419d3-5b71-4f90-954b-b05e94de8d98': 'CS',
     '06539c76-40ee-4811-8351-ab3f5ccc4437': 'CS',
@@ -30,6 +25,7 @@ const PRODUCT_MAPPING = {
     '668a73bc-2fca-4f12-9331-ef945181cd5c': 'FAB'
 };
 
+// ✨ PERFECTPAY - Mapeamento
 const PERFECTPAY_PLANS = {
     'PPLQQNCF7': 'CS',
     'PPLQQNCF8': 'CS',
@@ -49,13 +45,8 @@ function identifyPerfectPayProduct(productCode, planCode) {
     return 'CS';
 }
 
-// ============ 🔥 SISTEMA DE INSTÂNCIAS COM LISTA FIXA ============
-// Lista FIXA das suas instâncias (apenas essas serão usadas)
-const YOUR_INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'D11', 'D13'];
-
-let availableInstances = []; // Lista dinâmica: quais das SUAS instâncias estão conectadas
-let sensitiveInstances = new Map(); // Instâncias sensíveis: {instance: {reconnectedAt, conversationsProcessed}}
-let instanceLastUsed = new Map(); // Última vez que cada instância foi usada
+// ✅ Instâncias Evolution - LISTA FIXA (como estava no v8.3)
+const INSTANCES = ['D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'D11', 'D13'];
 
 // ============ ARMAZENAMENTO EM MEMÓRIA ============
 let conversations = new Map();
@@ -68,259 +59,36 @@ let pixTimeouts = new Map();
 let webhookLocks = new Map();
 let logs = [];
 let funis = new Map();
+let lastSuccessfulInstanceIndex = -1;
 
+// 🔥 Sistema de bloqueio de mensagens duplicadas
 let sentMessagesHash = new Map();
 let messageBlockTimers = new Map();
 
-// ============ 🔍 DETECÇÃO AUTOMÁTICA DE INSTÂNCIAS ============
-
-async function fetchConnectedInstances() {
-    try {
-        const url = `${EVOLUTION_BASE_URL}/instance/fetchInstances`;
-        
-        addLog('INSTANCE_CHECK_START', '🔍 Consultando instâncias na Evolution API...', {
-            yourInstances: YOUR_INSTANCES.join(', ')
-        });
-        
-        const response = await axios.get(url, {
-            headers: {
-                'apikey': EVOLUTION_API_KEY
-            },
-            timeout: 10000
-        });
-        
-        if (!response.data || !Array.isArray(response.data)) {
-            addLog('INSTANCE_CHECK_ERROR', '❌ Resposta inválida da Evolution API', { response: response.data });
-            return [];
-        }
-        
-        // Filtra apenas instâncias que:
-        // 1. Estão na lista YOUR_INSTANCES (suas instâncias)
-        // 2. Têm status "open" (conectadas)
-        const allConnected = response.data
-            .filter(inst => inst.instance && inst.instance.state === 'open')
-            .map(inst => inst.instance.instanceName);
-        
-        const yourConnected = allConnected.filter(inst => YOUR_INSTANCES.includes(inst));
-        
-        const ignored = allConnected.filter(inst => !YOUR_INSTANCES.includes(inst));
-        
-        addLog('INSTANCE_CHECK_SUCCESS', `✅ ${yourConnected.length}/${YOUR_INSTANCES.length} das suas instâncias conectadas`, { 
-            yourConnected: yourConnected.join(', ') || 'nenhuma',
-            yourTotal: YOUR_INSTANCES.length,
-            ignoredInstances: ignored.length > 0 ? ignored.join(', ') : 'nenhuma'
-        });
-        
-        return yourConnected;
-        
-    } catch (error) {
-        addLog('INSTANCE_CHECK_ERROR', '❌ Erro ao consultar instâncias', {
-            error: error.message,
-            code: error.code
-        });
-        return [];
-    }
-}
-
-function updateAvailableInstances(newInstances) {
-    const oldInstances = [...availableInstances];
-    
-    // Detecta instâncias que CAÍRAM
-    const dropped = oldInstances.filter(inst => !newInstances.includes(inst));
-    dropped.forEach(inst => {
-        addLog('INSTANCE_DROPPED', `❌ ${inst} CAIU (desconectada)`, { instance: inst });
-    });
-    
-    // Detecta instâncias que VOLTARAM
-    const reconnected = newInstances.filter(inst => !oldInstances.includes(inst));
-    reconnected.forEach(inst => {
-        addLog('INSTANCE_RECONNECTED', `🔄 ${inst} VOLTOU (reconectada - marcada como SENSÍVEL)`, { 
-            instance: inst,
-            sensitiveFor: '10 conversas OU 6 horas'
-        });
-        
-        // Marca como sensível
-        sensitiveInstances.set(inst, {
-            reconnectedAt: Date.now(),
-            conversationsProcessed: 0
-        });
-    });
-    
-    // Atualiza lista global
-    availableInstances = newInstances;
-    
-    addLog('INSTANCE_UPDATE', `📊 Instâncias atualizadas: ${newInstances.length} disponíveis`, {
-        connected: newInstances.join(', '),
-        sensitive: Array.from(sensitiveInstances.keys()).join(', ') || 'nenhuma'
-    });
-}
-
-// Verifica instâncias a cada 2 minutos
-setInterval(async () => {
-    const connected = await fetchConnectedInstances();
-    if (connected.length > 0) {
-        updateAvailableInstances(connected);
-    }
-}, INSTANCE_CHECK_INTERVAL);
-
-// Primeira verificação ao iniciar
-setTimeout(async () => {
-    const connected = await fetchConnectedInstances();
-    if (connected.length > 0) {
-        updateAvailableInstances(connected);
-    }
-}, 5000); // 5 segundos após iniciar
-
-// ============ 🎯 DISTRIBUIÇÃO INTELIGENTE - MENOS CARREGADA ============
-
-function getInstanceLoad() {
-    const load = {};
-    availableInstances.forEach(inst => load[inst] = 0);
-    
-    conversations.forEach(conv => {
-        if (!conv.canceled && !conv.completed) {
-            const instance = stickyInstances.get(conv.phoneKey);
-            if (instance && load[instance] !== undefined) {
-                load[instance]++;
-            }
-        }
-    });
-    
-    return load;
-}
-
-function isSensitiveInstance(instanceName) {
-    const sensitive = sensitiveInstances.get(instanceName);
-    if (!sensitive) return false;
-    
-    const timeSince = Date.now() - sensitive.reconnectedAt;
-    const conversationsOk = sensitive.conversationsProcessed >= SENSITIVE_CONVERSATIONS;
-    const timeExpired = timeSince >= SENSITIVE_TIME;
-    
-    // Desmarca se atingiu 10 conversas OU passou 6 horas
-    if (conversationsOk || timeExpired) {
-        sensitiveInstances.delete(instanceName);
-        addLog('INSTANCE_NO_LONGER_SENSITIVE', `✅ ${instanceName} não é mais SENSÍVEL`, {
-            instance: instanceName,
-            conversationsProcessed: sensitive.conversationsProcessed,
-            hoursElapsed: Math.round(timeSince / (60 * 60 * 1000))
-        });
-        return false;
-    }
-    
-    return true;
-}
-
-function selectBestInstance() {
-    if (availableInstances.length === 0) {
-        addLog('DISTRIBUTION_ERROR', '❌ NENHUMA instância disponível!');
-        return null;
-    }
-    
-    const load = getInstanceLoad();
-    
-    // Separa instâncias em normais e sensíveis
-    const normal = [];
-    const sensitive = [];
-    
-    availableInstances.forEach(inst => {
-        if (isSensitiveInstance(inst)) {
-            sensitive.push({ instance: inst, load: load[inst] });
-        } else {
-            normal.push({ instance: inst, load: load[inst] });
-        }
-    });
-    
-    // Se há instâncias normais com carga < 5, usa elas
-    const normalAvailable = normal.filter(i => i.load < OVERLOAD_THRESHOLD);
-    if (normalAvailable.length > 0) {
-        // Escolhe a MENOS carregada entre as normais
-        normalAvailable.sort((a, b) => a.load - b.load);
-        const chosen = normalAvailable[0];
-        
-        addLog('DISTRIBUTION_NORMAL', `✅ ${chosen.instance} escolhida (${chosen.load} conversas - menos carregada)`, {
-            instance: chosen.instance,
-            load: chosen.load,
-            allLoads: load,
-            sensitive: sensitive.map(s => s.instance).join(', ') || 'nenhuma'
-        });
-        
-        return chosen.instance;
-    }
-    
-    // Se TODAS as normais estão sobrecarregadas (5+), precisa usar sensível OU a menos carregada
-    const allInstances = [...normal, ...sensitive];
-    allInstances.sort((a, b) => a.load - b.load);
-    const chosen = allInstances[0];
-    
-    if (isSensitiveInstance(chosen.instance)) {
-        addLog('DISTRIBUTION_SENSITIVE_FORCED', `⚠️ ${chosen.instance} escolhida (SENSÍVEL, mas outras sobrecarregadas)`, {
-            instance: chosen.instance,
-            load: chosen.load,
-            allLoads: load,
-            reason: 'Todas as instâncias normais estão sobrecarregadas (5+ conversas)'
-        });
-    } else {
-        addLog('DISTRIBUTION_OVERLOADED', `⚠️ ${chosen.instance} escolhida (${chosen.load} conversas - TODAS sobrecarregadas)`, {
-            instance: chosen.instance,
-            load: chosen.load,
-            allLoads: load
-        });
-    }
-    
-    return chosen.instance;
-}
-
-function shouldAddOverloadDelay(instanceName) {
-    const load = getInstanceLoad();
-    const instanceLoad = load[instanceName] || 0;
-    
-    if (instanceLoad >= OVERLOAD_THRESHOLD) {
-        addLog('OVERLOAD_DELAY', `⏱️ ${instanceName} sobrecarregada (${instanceLoad} conversas) - delay de 2min na PRÓXIMA mensagem`, {
-            instance: instanceName,
-            load: instanceLoad,
-            delay: '2 minutos'
-        });
-        return true;
-    }
-    
-    return false;
-}
-
-function incrementInstanceUsage(instanceName) {
-    // Incrementa contador de conversas processadas (para instâncias sensíveis)
-    const sensitive = sensitiveInstances.get(instanceName);
-    if (sensitive) {
-        sensitive.conversationsProcessed++;
-        sensitiveInstances.set(instanceName, sensitive);
-        
-        addLog('SENSITIVE_USAGE', `📊 ${instanceName} (sensível): ${sensitive.conversationsProcessed}/${SENSITIVE_CONVERSATIONS} conversas processadas`, {
-            instance: instanceName,
-            progress: sensitive.conversationsProcessed,
-            target: SENSITIVE_CONVERSATIONS
-        });
-    }
-}
-
 // ============ 💰 SISTEMA DE VARIÁVEIS DINÂMICAS ============
+
 function replaceVariables(text, conversation) {
     if (!text || !conversation) return text;
     
     let result = text;
     
+    // {PIX_LINK} - Link do PIX gerado
     if (conversation.pixLink) {
         result = result.replace(/\{PIX_LINK\}/g, conversation.pixLink);
     }
     
+    // {NOME_CLIENTE} - Nome do cliente
     if (conversation.customerName) {
         result = result.replace(/\{NOME_CLIENTE\}/g, conversation.customerName);
         result = result.replace(/\{NOME\}/g, conversation.customerName);
     }
     
+    // {VALOR} - Valor da compra
     if (conversation.amount) {
         result = result.replace(/\{VALOR\}/g, conversation.amount);
     }
     
+    // {PRODUTO} - Tipo do produto
     if (conversation.productType) {
         result = result.replace(/\{PRODUTO\}/g, conversation.productType);
     }
@@ -328,7 +96,8 @@ function replaceVariables(text, conversation) {
     return result;
 }
 
-// ============ 🔥 SISTEMA DE HASH E ANTI-DUPLICAÇÃO ============
+// ============ 🔥 SISTEMA DE HASH MELHORADO ============
+
 function generateMessageHashImproved(phoneKey, step, conversation) {
     const baseContent = step.text || step.mediaUrl || '';
     const data = `${phoneKey}|${step.type}|${baseContent}|${step.id}`;
@@ -372,7 +141,7 @@ function registerSentMessage(phoneKey, step, conversation) {
         total: sentMessagesHash.get(phoneKey).size
     });
     
-    addLog('MESSAGE_REGISTERED', `Mensagem bloqueada por 60s (anti-duplicação)`, {
+    addLog('MESSAGE_REGISTERED', `Mensagem bloqueada por 60s`, {
         phoneKey,
         hash: hash.substring(0, 8),
         stepId: step.id
@@ -395,7 +164,8 @@ setInterval(() => {
     }
 }, 120000);
 
-// ============ NORMALIZAÇÃO ============
+// ============ SISTEMA DE NORMALIZAÇÃO UNIVERSAL ULTRA ROBUSTO ============
+
 function normalizePhoneKey(phone) {
     if (!phone) return null;
     
@@ -846,6 +616,7 @@ app.use(express.json());
 app.use(express.static('public'));
 
 // ============ FUNÇÕES AUXILIARES ============
+
 function phoneToRemoteJid(phone) {
     const cleaned = phone.replace(/\D/g, '');
     let formatted = cleaned;
@@ -1018,7 +789,7 @@ async function sendAudio(remoteJid, audioUrl, instanceName) {
     }
 }
 
-async function sendWithFallback(phoneKey, remoteJid, step, conversation, isFirstMessage = false, needsOverloadDelay = false) {
+async function sendWithFallback(phoneKey, remoteJid, step, conversation, isFirstMessage = false) {
     // 🔥 Anti-duplicação
     if (isMessageBlocked(phoneKey, step, conversation)) {
         addLog('SEND_BLOCKED_DUPLICATE', `🚫 BLOQUEADO - Mensagem duplicada`, {
@@ -1029,83 +800,59 @@ async function sendWithFallback(phoneKey, remoteJid, step, conversation, isFirst
         return { success: false, error: 'MESSAGE_ALREADY_SENT', blocked: true };
     }
     
-    // 🔥 Delay de sobrecarga (APENAS na próxima mensagem, não em todas)
-    if (needsOverloadDelay) {
-        addLog('OVERLOAD_DELAY_APPLYING', `⏱️ Aplicando delay de 2min (instância sobrecarregada)`, {
-            phoneKey,
-            delay: '2 minutos'
-        });
-        await new Promise(resolve => setTimeout(resolve, OVERLOAD_DELAY));
-    }
-    
     const finalText = replaceVariables(step.text, conversation);
     const finalMediaUrl = replaceVariables(step.mediaUrl, conversation);
     
-    let instanceName;
-    const forcedInstance = conversation.forceStickyInstance;
+    let instancesToTry = [...INSTANCES];
+    const stickyInstance = stickyInstances.get(phoneKey);
     
-    if (forcedInstance) {
-        instanceName = forcedInstance;
-        addLog('FORCED_STICKY_INSTANCE', `Usando instância forçada: ${forcedInstance}`, { phoneKey });
+    if (stickyInstance && !isFirstMessage) {
+        instancesToTry = [stickyInstance, ...INSTANCES.filter(i => i !== stickyInstance)];
     } else if (isFirstMessage) {
-        // 🎯 Distribuição inteligente - menos carregada
-        instanceName = selectBestInstance();
-        if (!instanceName) {
-            addLog('SEND_ERROR', '❌ Nenhuma instância disponível', { phoneKey });
-            return { success: false, error: 'NO_INSTANCES_AVAILABLE' };
-        }
-    } else {
-        // Usa sticky instance
-        instanceName = stickyInstances.get(phoneKey) || selectBestInstance();
+        const nextIndex = (lastSuccessfulInstanceIndex + 1) % INSTANCES.length;
+        instancesToTry = [...INSTANCES.slice(nextIndex), ...INSTANCES.slice(0, nextIndex)];
     }
     
+    let lastError = null;
     const maxAttempts = 3;
     
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        try {
-            let result;
-            
-            if (step.type === 'text') result = await sendText(remoteJid, finalText, instanceName);
-            else if (step.type === 'image') result = await sendImage(remoteJid, finalMediaUrl, '', instanceName);
-            else if (step.type === 'image+text') result = await sendImage(remoteJid, finalMediaUrl, finalText, instanceName);
-            else if (step.type === 'video') result = await sendVideo(remoteJid, finalMediaUrl, '', instanceName);
-            else if (step.type === 'video+text') result = await sendVideo(remoteJid, finalMediaUrl, finalText, instanceName);
-            else if (step.type === 'audio') result = await sendAudio(remoteJid, finalMediaUrl, instanceName);
-            
-            if (result && result.ok) {
-                // 🔥 Registra mensagem enviada (anti-duplicação)
-                registerSentMessage(phoneKey, step, conversation);
+    for (const instanceName of instancesToTry) {
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                let result;
                 
-                // Registra uso da instância
-                stickyInstances.set(phoneKey, instanceName);
-                incrementInstanceUsage(instanceName);
+                if (step.type === 'text') result = await sendText(remoteJid, finalText, instanceName);
+                else if (step.type === 'image') result = await sendImage(remoteJid, finalMediaUrl, '', instanceName);
+                else if (step.type === 'image+text') result = await sendImage(remoteJid, finalMediaUrl, finalText, instanceName);
+                else if (step.type === 'video') result = await sendVideo(remoteJid, finalMediaUrl, '', instanceName);
+                else if (step.type === 'video+text') result = await sendVideo(remoteJid, finalMediaUrl, finalText, instanceName);
+                else if (step.type === 'audio') result = await sendAudio(remoteJid, finalMediaUrl, instanceName);
                 
-                if (conversation.forceStickyInstance) {
-                    conversation.forceStickyInstance = null;
-                    conversations.set(phoneKey, conversation);
+                if (result && result.ok) {
+                    registerSentMessage(phoneKey, step, conversation);
+                    
+                    stickyInstances.set(phoneKey, instanceName);
+                    if (isFirstMessage) {
+                        lastSuccessfulInstanceIndex = INSTANCES.indexOf(instanceName);
+                    }
+                    addLog('SEND_SUCCESS', `✅ Mensagem enviada via ${instanceName}`, { phoneKey, stepId: step.id, type: step.type });
+                    return { success: true, instanceName };
                 }
                 
-                addLog('SEND_SUCCESS', `✅ Mensagem enviada via ${instanceName}`, { 
-                    phoneKey, 
-                    stepId: step.id, 
-                    type: step.type,
-                    instance: instanceName
-                });
-                
-                return { success: true, instanceName };
-            }
-            
-            if (attempt < maxAttempts) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-        } catch (error) {
-            if (attempt < maxAttempts) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
+                lastError = result.error;
+                if (attempt < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
+            } catch (error) {
+                lastError = error.message;
+                if (attempt < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                }
             }
         }
     }
     
-    addLog('SEND_ALL_FAILED', `❌ Falha total no envio para ${phoneKey}`, { instanceName });
+    addLog('SEND_ALL_FAILED', `❌ Falha total no envio para ${phoneKey}`, { lastError });
     
     const conv = conversations.get(phoneKey);
     if (conv) {
@@ -1113,10 +860,10 @@ async function sendWithFallback(phoneKey, remoteJid, step, conversation, isFirst
         conversations.set(phoneKey, conv);
     }
     
-    return { success: false, error: 'SEND_FAILED' };
+    return { success: false, error: lastError };
 }
 
-// ============ ORQUESTRAÇÃO - 100% BASEADO NO SITE ============
+// ============ ORQUESTRAÇÃO ============
 
 async function createPixWaitingConversation(phoneKey, remoteJid, orderCode, customerName, productType, amount, pixLink, pixQrCode) {
     console.log('🔴 createPixWaitingConversation:', phoneKey);
@@ -1178,8 +925,6 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
     const pixLink = pixConv ? pixConv.pixLink : null;
     const pixQrCode = pixConv ? pixConv.pixQrCode : null;
     
-    const oldStickyInstance = stickyInstances.get(phoneKey);
-    
     if (pixConv) {
         pixConv.canceled = true;
         pixConv.canceledAt = new Date();
@@ -1195,11 +940,7 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
     
     const startingStep = 0;
     
-    addLog('TRANSFER_PIX_TO_APPROVED', `Transferido para APROVADA na mesma instância`, { 
-        phoneKey, 
-        productType,
-        oldInstance: oldStickyInstance || 'NENHUMA'
-    });
+    addLog('TRANSFER_PIX_TO_APPROVED', `Transferido para APROVADA, começando do passo 0`, { phoneKey, productType });
     
     const approvedConv = {
         phoneKey,
@@ -1218,8 +959,7 @@ async function transferPixToApproved(phoneKey, remoteJid, orderCode, customerNam
         lastReply: null,
         canceled: false,
         completed: false,
-        transferredFromPix: true,
-        forceStickyInstance: oldStickyInstance
+        transferredFromPix: true
     };
     
     conversations.set(phoneKey, approvedConv);
@@ -1265,27 +1005,16 @@ async function startFunnel(phoneKey, remoteJid, funnelId, orderCode, customerNam
     await sendStep(phoneKey);
 }
 
-// 🔥 sendStep - 100% RESPEITA O SITE
+// 🔥 CORREÇÃO CRÍTICA #2: sendStep marca waiting ANTES de enviar
 async function sendStep(phoneKey) {
     const conversation = conversations.get(phoneKey);
     if (!conversation || conversation.canceled || conversation.pixWaiting) return;
     
     const funnel = funis.get(conversation.funnelId);
-    if (!funnel) {
-        addLog('FUNNEL_NOT_FOUND', `❌ Funil ${conversation.funnelId} não encontrado`, { phoneKey });
-        return;
-    }
+    if (!funnel) return;
     
     const step = funnel.steps[conversation.stepIndex];
-    if (!step) {
-        addLog('STEP_NOT_FOUND', `❌ Step ${conversation.stepIndex} não existe no funil`, { 
-            phoneKey,
-            funnelId: conversation.funnelId,
-            stepIndex: conversation.stepIndex,
-            totalSteps: funnel.steps.length
-        });
-        return;
-    }
+    if (!step) return;
     
     const isFirstMessage = conversation.stepIndex === 0 && !conversation.lastSystemMessage;
     
@@ -1297,14 +1026,10 @@ async function sendStep(phoneKey) {
         waitForReply: step.waitForReply || false
     });
     
-    // 🔥 Aplica TODOS os delays do SITE (ANTES de enviar)
+    // Aplica delays do funil
     if (step.delayBefore && step.delayBefore > 0) {
         const delaySeconds = parseInt(step.delayBefore);
-        addLog('STEP_DELAY_BEFORE', `⏱️ Aguardando delayBefore: ${delaySeconds}s (configurado no site)`, { 
-            phoneKey, 
-            stepId: step.id,
-            delay: delaySeconds + 's'
-        });
+        addLog('STEP_DELAY_BEFORE', `⏱️ Aguardando delayBefore: ${delaySeconds}s`, { phoneKey, stepId: step.id });
         await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
     }
     
@@ -1317,14 +1042,10 @@ async function sendStep(phoneKey) {
     
     if (step.type === 'delay') {
         const delaySeconds = parseInt(step.delaySeconds || 10);
-        addLog('STEP_DELAY_EXECUTE', `⏱️ Executando delay: ${delaySeconds}s (configurado no site)`, { 
-            phoneKey, 
-            stepId: step.id,
-            delay: delaySeconds + 's'
-        });
+        addLog('STEP_DELAY_EXECUTE', `⏱️ Executando delay: ${delaySeconds}s`, { phoneKey, stepId: step.id });
         await new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));
     } else {
-        // 🔥 Marca waiting ANTES de enviar (se waitForReply)
+        // 🔥 CORREÇÃO: Marca waiting ANTES de enviar (se waitForReply)
         if (step.waitForReply) {
             conversation.waiting_for_response = true;
             conversations.set(phoneKey, conversation);
@@ -1335,11 +1056,7 @@ async function sendStep(phoneKey) {
             });
         }
         
-        // Verifica se precisa adicionar delay de sobrecarga
-        const instanceName = stickyInstances.get(phoneKey);
-        const needsOverloadDelay = instanceName && shouldAddOverloadDelay(instanceName);
-        
-        result = await sendWithFallback(phoneKey, conversation.remoteJid, step, conversation, isFirstMessage, needsOverloadDelay);
+        result = await sendWithFallback(phoneKey, conversation.remoteJid, step, conversation, isFirstMessage);
         
         if (result.blocked) {
             addLog('STEP_BLOCKED_DUPLICATE', `🚫 Passo bloqueado por duplicação`, { phoneKey, stepId: step.id });
@@ -1360,7 +1077,7 @@ async function sendStep(phoneKey) {
             addLog('STEP_WAITING_REPLY', `⏸️ Aguardando resposta do lead (passo ${conversation.stepIndex + 1})`, { 
                 phoneKey,
                 stepId: step.id,
-                message: 'Fluxo pausado até o lead responder (QUALQUER tipo de mensagem)'
+                message: 'Fluxo pausado até o lead responder'
             });
         } else {
             // Mensagem que NÃO espera resposta → avança automaticamente
@@ -1373,6 +1090,7 @@ async function sendStep(phoneKey) {
     }
 }
 
+// 🔥 CORREÇÃO CRÍTICA #1: advanceConversation só marca waiting=false se reason='reply'
 async function advanceConversation(phoneKey, replyText, reason) {
     const conversation = conversations.get(phoneKey);
     if (!conversation || conversation.canceled) return;
@@ -1393,10 +1111,12 @@ async function advanceConversation(phoneKey, replyText, reason) {
     
     conversation.stepIndex = nextStepIndex;
     
+    // 🔥 CORREÇÃO: Só desmarca waiting se for resposta do lead
     if (reason === 'reply') {
         conversation.lastReply = new Date();
         conversation.waiting_for_response = false;
     }
+    // Se reason === 'auto', NÃO mexe em waiting_for_response
     
     conversations.set(phoneKey, conversation);
     addLog('STEP_ADVANCE', `⏭️ Avançando para passo ${nextStepIndex + 1}/${funnel.steps.length}`, { 
@@ -1553,7 +1273,7 @@ app.post('/webhook/perfectpay', async (req, res) => {
     }
 });
 
-// 🔥 Webhook Evolution - 100% FUNCIONAL
+// 🔥 CORREÇÃO CRÍTICA #3: Webhook só aceita se waiting=true
 app.post('/webhook/evolution', async (req, res) => {
     try {
         const data = req.body;
@@ -1661,7 +1381,7 @@ app.post('/webhook/evolution', async (req, res) => {
                 return res.json({ success: true });
             }
             
-            // 🔥 Só aceita se REALMENTE está esperando
+            // 🔥 CORREÇÃO: Só aceita se REALMENTE está esperando
             if (!conversation.waiting_for_response) {
                 addLog('EVOLUTION_NOT_WAITING', '⚠️ Conversa não está esperando resposta - IGNORANDO', { 
                     phoneKey,
@@ -1700,7 +1420,7 @@ app.post('/webhook/evolution', async (req, res) => {
 
 app.get('/api/dashboard', (req, res) => {
     const instanceUsage = {};
-    availableInstances.forEach(inst => instanceUsage[inst] = 0);
+    INSTANCES.forEach(inst => instanceUsage[inst] = 0);
     
     conversations.forEach(conv => {
         if (!conv.canceled && !conv.completed) {
@@ -1731,9 +1451,8 @@ app.get('/api/dashboard', (req, res) => {
             error_conversations: errorCount,
             pending_pix: pixTimeouts.size,
             total_funnels: funis.size,
-            total_instances: availableInstances.length,
-            available_instances: availableInstances.join(', '),
-            sensitive_instances: Array.from(sensitiveInstances.keys()).join(', ') || 'nenhuma',
+            total_instances: INSTANCES.length,
+            available_instances: INSTANCES.join(', '),
             sticky_instances: stickyInstances.size,
             instance_distribution: instanceUsage,
             webhook_locks: webhookLocks.size,
@@ -1947,7 +1666,7 @@ app.get('/api/funnels/export', (req, res) => {
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
         res.send(JSON.stringify({
-            version: '9.1',
+            version: '9.2',
             exportDate: new Date().toISOString(),
             totalFunnels: funnelsArray.length,
             funnels: funnelsArray
@@ -2014,32 +1733,23 @@ async function initializeData() {
 
 app.listen(PORT, async () => {
     console.log('='.repeat(80));
-    console.log('🛡️ KIRVANO v9.1 - SISTEMA DEFINITIVO 100% BASEADO NO SITE');
+    console.log('🛡️ KIRVANO v9.2 - BASEADO v8.3 + 3 CORREÇÕES CRÍTICAS');
     console.log('='.repeat(80));
     console.log('✅ Porta:', PORT);
     console.log('✅ Evolution:', EVOLUTION_BASE_URL);
-    console.log('✅ Suas Instâncias:', YOUR_INSTANCES.join(', '));
+    console.log('✅ Instâncias:', INSTANCES.join(', '));
     console.log('');
-    console.log('🎯 FUNCIONALIDADES v9.1:');
-    console.log('  ✅ Lista FIXA de instâncias (ignora outras da Evolution)');
-    console.log('  ✅ Detecção automática (consulta a cada 2min)');
-    console.log('  ✅ Distribuição inteligente - MENOS CARREGADA');
-    console.log('  ✅ Instâncias sensíveis (10 conversas OU 6 horas)');
-    console.log('  ✅ Delay de 2min em sobrecarga (5+ conversas)');
-    console.log('  ✅ NUNCA bloqueia lead');
-    console.log('  ✅ 100% baseado no site (ZERO hardcoded)');
+    console.log('🔧 CORREÇÕES v9.2:');
+    console.log('  ✅ CORREÇÃO #1: advanceConversation só marca waiting=false se reason=reply');
+    console.log('  ✅ CORREÇÃO #2: sendStep marca waiting=true ANTES de enviar');
+    console.log('  ✅ CORREÇÃO #3: Webhook só aceita se waiting_for_response=true');
+    console.log('');
+    console.log('🔥 GARANTIAS:');
     console.log('  ✅ waitForReply 100% respeitado');
-    console.log('  ✅ ZERO duplicação de mensagens');
-    console.log('  ✅ Sincronização automática com site');
-    console.log('  ✅ Logs super detalhados');
-    console.log('');
-    console.log('📊 CONFIGURAÇÕES:');
-    console.log('  📱 Total de instâncias: ' + YOUR_INSTANCES.length);
-    console.log('  ⚠️ Sobrecarregada: 5 conversas ativas');
-    console.log('  ⏱️ Delay sobrecarga: 2 minutos');
-    console.log('  🔄 Sensível: 10 conversas OU 6 horas');
-    console.log('  🔍 Verificação instâncias: a cada 2 minutos');
-    console.log('  ⏰ Timeout PIX: 7 minutos (ÚNICO delay no código)');
+    console.log('  ✅ {PIX_LINK} funcionando');
+    console.log('  ✅ Delays respeitados');
+    console.log('  ✅ Zero duplicação');
+    console.log('  ✅ Instâncias simples (lista fixa)');
     console.log('');
     console.log('🌐 Endpoints:');
     console.log('  📊 Dashboard: http://localhost:' + PORT + '/api/dashboard');
